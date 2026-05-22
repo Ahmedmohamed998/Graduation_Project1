@@ -1,0 +1,15 @@
+venv
+__pycache__
+*.pyc
+*.pyo
+.git
+.gitignore
+.env
+*.md
+.DS_Store
+Thumbs.db
+data/*.csv
+data/*.json
+synthetic_data_generator.py
+mock_home_backend.py
+test_agent.py

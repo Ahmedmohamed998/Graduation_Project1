@@ -1,0 +1,91 @@
+services:
+
+  # ─────────────────────────────────────────────
+  #  1. AUTH BACKEND  (Node.js · port 3210)
+  # ─────────────────────────────────────────────
+  auth-backend:
+    build:
+      context: ./auth-backend
+      dockerfile: Dockerfile
+    image: hasibha/auth-backend:latest
+    container_name: hasibha-auth
+    restart: unless-stopped
+    ports:
+      - "3210:3210"
+    env_file:
+      - ./auth-backend/.env
+    environment:
+      - NODE_ENV=production
+    networks:
+      - hasibha-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3210/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─────────────────────────────────────────────
+  #  2. HOME BACKEND  (Node.js · port 5001)
+  # ─────────────────────────────────────────────
+  home-backend:
+    build:
+      context: ./home-backend
+      dockerfile: Dockerfile
+    image: hasibha/home-backend:latest
+    container_name: hasibha-home
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    env_file:
+      - ./home-backend/.env
+    environment:
+      - NODE_ENV=production
+      # Override AI_AGENT_URL to use the Docker service name instead of localhost
+      - AI_AGENT_URL=http://ai-service:8000
+      # Firebase JSON is mounted from the project root
+      - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase-adminsdk.json
+    volumes:
+      # Mount the Firebase service-account key into the container
+      - ./hasibha-notificatio-firebase-adminsdk-fbsvc-ac5586ab12.json:/app/firebase-adminsdk.json:ro
+    networks:
+      - hasibha-net
+    depends_on:
+      ai-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─────────────────────────────────────────────
+  #  3. AI SERVICE  (Python/FastAPI · port 8000)
+  # ─────────────────────────────────────────────
+  ai-service:
+    build:
+      context: ./grad_project_ai
+      dockerfile: Dockerfile
+    image: hasibha/ai-service:latest
+    container_name: hasibha-ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./grad_project_ai/.env
+    networks:
+      - hasibha-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/docs').raise_for_status()"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 40s
+
+# ─────────────────────────────────────────────
+#  Shared network
+# ─────────────────────────────────────────────
+networks:
+  hasibha-net:
+    driver: bridge

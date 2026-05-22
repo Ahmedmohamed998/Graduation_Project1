@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log*
+.git
+.gitignore
+.env
+*.md
+logs
+*.log
+.DS_Store
+Thumbs.db
+manual-test-guide.bat
+test-api.js
+test-api.ps1

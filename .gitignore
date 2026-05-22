@@ -1,0 +1,9 @@
+node_modules/
+.env
+auth-backend/.env
+home-backend/.env
+grad_project_ai/.env
+
+# Firebase service account
+*.json
+hasibha-notificatio-*.json
