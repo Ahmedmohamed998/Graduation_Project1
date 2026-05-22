@@ -1,0 +1,1576 @@
+// const User = require("../models/User");
+// const bcrypt = require("bcryptjs");
+// const jwt = require("jsonwebtoken");
+// const { OAuth2Client } = require("google-auth-library");
+
+
+// exports.login = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     // Validate input
+//     if (!email || !password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email and password are required."
+//       });
+//     }
+
+//     // Find user
+//     const user = await User.findOne({ email });
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "No user found with this email."
+//       });
+//     }
+
+//     // Compare password
+//     const isMatch = await bcrypt.compare(password, user.password);
+//     if (!isMatch) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Incorrect password."
+//       });
+//     }
+
+//     // Generate JWT
+//     const token = jwt.sign(
+//       { id: user._id },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     return res.json({
+//       success: true,
+//       message: "Login successful.",
+//       token,
+//       user: {
+//         id: user._id,
+//         email: user.email,
+//         username: user.username
+//       }
+//     });
+
+//   } catch (err) {
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error.",
+//       error: err.message
+//     });
+//   }
+// };
+
+
+
+
+
+// // ------------ SIGN UP ------------
+// exports.signup = async (req, res) => {
+//   try {
+//     const { username, email, phone, password, confirmPassword } = req.body;
+
+//     // Required fields validation
+//     if (!username || !email || !phone || !password || !confirmPassword) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "All fields are required."
+//       });
+//     }
+
+//     // Password match check
+//     if (password !== confirmPassword) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Passwords do not match."
+//       });
+//     }
+
+//     // Password minimum length validation
+//     if (password.length < 6) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Password must be at least 6 characters."
+//       });
+//     }
+
+//     // Check if email already exists
+//     const emailExists = await User.findOne({ email });
+//     if (emailExists) {
+//       return res.status(409).json({
+//         success: false,
+//         message: "Email already registered."
+//       });
+//     }
+
+//     // Check if phone already exists
+//     const phoneExists = await User.findOne({ phone });
+//     if (phoneExists) {
+//       return res.status(409).json({
+//         success: false,
+//         message: "Phone number already in use."
+//       });
+//     }
+
+//     // Hash password
+//     const hashedPassword = await bcrypt.hash(password, 10);
+
+//     // Create user
+//     const newUser = await User.create({
+//       username,
+//       email,
+//       phone,
+//       password: hashedPassword
+//     });
+
+//     // Generate JWT
+//     const token = jwt.sign(
+//       { id: newUser._id },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     return res.status(201).json({
+//       success: true,
+//       message: "Account created successfully.",
+//       token,
+//       user: {
+//         id: newUser._id,
+//         username: newUser.username,
+//         email: newUser.email
+//       }
+//     });
+
+//   } catch (err) {
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error.",
+//       error: err.message
+//     });
+//   }
+// };
+
+
+
+
+
+
+
+
+// exports.forgotPassword = async (req, res) => {
+//   try {
+//     const { email } = req.body;
+
+//     if (!email) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email is required."
+//       });
+//     }
+
+//     // Check if user exists
+//     const user = await User.findOne({ email });
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "No user found with this email."
+//       });
+//     }
+
+//     // Generate 6-digit code
+//     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+//     // Expire in 10 minutes
+//     const expiry = new Date(Date.now() + 10 * 60 * 1000);
+
+//     // Save in DB
+//     user.resetCode = resetCode;
+//     user.resetCodeExpiry = expiry;
+//     await user.save();
+
+//     // TODO: send email to user.resetCode (will add below)
+//     console.log("Reset Code:", resetCode);
+
+//     res.json({
+//       success: true,
+//       message: "Reset code sent to your email."
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error.",
+//       error: err.message
+//     });
+//   }
+// };
+
+
+
+
+
+
+
+
+// exports.resetPassword = async (req, res) => {
+//   try {
+//     const { email, code, newPassword } = req.body;
+
+//     if (!email || !code || !newPassword) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email, code and new password are required."
+//       });
+//     }
+
+//     // Find user
+//     const user = await User.findOne({ email });
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found."
+//       });
+//     }
+
+//     // Check code
+//     if (user.resetCode !== code) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid code."
+//       });
+//     }
+
+//     // Check expiry
+//     if (user.resetCodeExpiry < new Date()) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Code expired."
+//       });
+//     }
+
+//     // Update password
+//     const hashedPassword = await bcrypt.hash(newPassword, 10);
+//     user.password = hashedPassword;
+
+//     // Clear the reset fields
+//     user.resetCode = null;
+//     user.resetCodeExpiry = null;
+
+//     await user.save();
+
+//     return res.json({
+//       success: true,
+//       message: "Password reset successful."
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error.",
+//       error: err.message
+//     });
+//   }
+// };
+
+
+
+
+
+
+// const sendEmail = require("../utils/sendEmail");
+
+// exports.forgotPassword = async (req, res) => {
+//   try {
+//     const { email } = req.body;
+
+//     if (!email) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email is required."
+//       });
+//     }
+
+//     const user = await User.findOne({ email });
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "No user found with this email."
+//       });
+//     }
+
+//     // Generate 6-digit code
+//     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+//     const expiry = new Date(Date.now() + 10 * 60 * 1000);
+
+//     user.resetCode = resetCode;
+//     user.resetCodeExpiry = expiry;
+//     await user.save();
+
+//     // ----- SEND EMAIL -----
+//     const emailText = `Your password reset code is: ${resetCode}\n\nIt expires in 10 minutes.`;
+
+//     const sent = await sendEmail(
+//       email,
+//       "Your Password Reset Code",
+//       emailText
+//     );
+
+//     if (!sent) {
+//       return res.status(500).json({
+//         success: false,
+//         message: "Failed to send email. Try again."
+//       });
+//     }
+
+//     return res.json({
+//       success: true,
+//       message: "A reset code has been sent to your email."
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error.",
+//       error: err.message
+//     });
+//   }
+// };
+
+
+
+
+
+
+// // initialize client once
+// const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+// /**
+//  * POST /api/auth/google
+//  * Body: { idToken: string }
+//  */
+// exports.googleAuth = async (req, res) => {
+//   try {
+//     const { idToken } = req.body;
+//     if (!idToken) {
+//       return res.status(400).json({ success: false, message: "idToken is required." });
+//     }
+
+//     // Verify the ID token
+//     const ticket = await googleClient.verifyIdToken({
+//       idToken,
+//       audience: process.env.GOOGLE_CLIENT_ID
+//     });
+
+//     const payload = ticket.getPayload(); // contains email, name, sub, email_verified, picture, etc.
+//     if (!payload) {
+//       return res.status(400).json({ success: false, message: "Invalid Google token." });
+//     }
+
+//     const { sub: googleId, email, name, email_verified } = payload;
+
+//     // Optional: require verified email
+//     if (!email_verified) {
+//       return res.status(403).json({ success: false, message: "Google account email not verified." });
+//     }
+
+//     // Find existing user by googleId or email
+//     let user = await User.findOne({ $or: [{ googleId }, { email }] });
+
+//     if (user) {
+//       // If user exists but has no googleId, attach it
+//       if (!user.googleId) {
+//         user.googleId = googleId;
+//         // optionally update username if empty
+//         if (!user.username && name) user.username = name;
+//         await user.save();
+//       }
+//     } else {
+//       // Create new user
+//       user = await User.create({
+//         username: name || email.split("@")[0],
+//         email,
+//         phone: "",            // optional: mobile required? set empty or ask later
+//         password: "",         // no local password (or set random hashed value)
+//         googleId
+//       });
+//     }
+
+//     // Generate JWT for your application
+//     const token = jwt.sign(
+//       { id: user._id },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     return res.json({
+//       success: true,
+//       message: "Google authentication successful.",
+//       token,
+//       user: {
+//         id: user._id,
+//         email: user.email,
+//         username: user.username
+//       }
+//     });
+
+//   } catch (err) {
+//     console.error("googleAuth error:", err);
+//     return res.status(500).json({ success: false, message: "Server error.", error: err.message });
+//   }
+// };
+
+
+
+
+
+
+// const verifyGoogleToken = require("../utils/verifyGoogleToken");
+
+// exports.googleLogin = async (req, res) => {
+//   try {
+//     const { idToken } = req.body;
+
+//     if (!idToken) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Google ID token is required."
+//       });
+//     }
+
+//     // Verify Google token
+//     const googleData = await verifyGoogleToken(idToken);
+
+//     if (!googleData.success) {
+//       return res.status(401).json(googleData);
+//     }
+
+//     const { email, name, googleId } = googleData;
+
+//     let user = await User.findOne({ email });
+
+//     if (!user) {
+//       // Create new user automatically
+//       user = await User.create({
+//         email,
+//         username: name,
+//         googleId,
+//         password: null
+//       });
+//     }
+
+//     // Generate JWT tokens
+//     const accessToken = generateAccessToken(user._id);
+//     const refreshToken = generateRefreshToken(user._id);
+
+//     user.refreshToken = refreshToken;
+//     await user.save();
+
+//     return res.json({
+//       success: true,
+//       message: "Google login successful",
+//       accessToken,
+//       refreshToken,
+//       user: {
+//         id: user._id,
+//         email: user.email,
+//         username: user.username
+//       }
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: err.message
+//     });
+//   }
+// };
+
+
+
+
+
+
+// const { checkEmailRateLimit } = require("../utils/emailRateLimit");
+
+// exports.sendEmailVerification = async (req, res) => {
+//   const { email } = req.body;
+//   const ip = req.ip;
+
+//   // 1 — Apply rate limiting
+//   const check = await checkEmailRateLimit(email, ip);
+
+//   if (!check.allowed) {
+//     return res.status(429).json({
+//       success: false,
+//       message: check.reason
+//     });
+//   }
+
+//   // 2 — Create verification code
+//   const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+//   // 3 — Send email (connect your email provider here)
+//   console.log("Sending email verification code:", code);
+
+//   res.json({
+//     success: true,
+//     message: "Verification email sent",
+//     code // remove later (for dev only)
+//   });
+// };
+
+
+
+
+
+
+// // snippet inside login/signup success
+// const { signAccessToken } = require("../utils/token");
+// const { createRefreshToken } = require("../utils/refreshTokenUtil");
+
+// // After verifying user credentials...
+// const accessToken = signAccessToken({ id: user._id });
+// const refreshDoc = await createRefreshToken(user._id, {
+//   ip: req.ip,
+//   userAgent: req.get("User-Agent") || ""
+// });
+
+// // Option A (header/body): return refresh token in response (not recommended for long-term on mobile)
+// // Option B (recommended): set httpOnly secure cookie (mobile: use native secure store or httpOnly cookie if webview)
+// if (process.env.USE_REFRESH_COOKIE === "true") {
+//   res.cookie("refreshToken", refreshDoc.token, {
+//     httpOnly: true,
+//     secure: process.env.NODE_ENV === "production",
+//     sameSite: "strict",
+//     maxAge: refreshDoc.expiresAt.getTime() - Date.now()
+//   });
+//   return res.json({ success: true, accessToken, user: { id: user._id, email: user.email } });
+// } else {
+//   return res.json({
+//   success: true,
+//   accessToken,
+//   refreshToken: refreshDoc.token,
+//   user: {
+//     id: user._id,
+//     email: user.email,
+//     username: user.username
+//   }
+// });
+// };
+
+
+
+
+
+// const RefreshToken = require("../models/RefreshToken");
+
+// exports.refreshToken = async (req, res) => {
+//   try {
+//     // get token from body or cookie
+//     const token = req.body.refreshToken || req.cookies?.refreshToken;
+//     if (!token) return res.status(400).json({ success: false, message: "Refresh token missing" });
+
+//     const existing = await RefreshToken.findOne({ token });
+
+//     // If not found => possible reuse or token already revoked
+//     if (!existing) {
+//       // REUSE DETECTION: if a token not in DB is presented, this may be stolen and used
+//       // Optionally: log this event and revoke all tokens for user if you detect reuse
+//       return res.status(401).json({ success: false, message: "Invalid refresh token" });
+//     }
+
+//     // Check revoked / expired
+//     if (existing.revoked) {
+//       return res.status(401).json({ success: false, message: "Refresh token revoked" });
+//     }
+
+//     if (existing.isExpired()) {
+//       return res.status(401).json({ success: false, message: "Refresh token expired" });
+//     }
+
+//     // Rotation: create a new refresh token, mark current as replacedBy and revoked
+//     const newRefresh = await createRefreshToken(existing.user, {
+//       ip: req.ip,
+//       userAgent: req.get("User-Agent") || ""
+//     });
+
+//     existing.revoked = true;
+//     existing.replacedBy = newRefresh.token;
+//     await existing.save();
+
+//     // issue new access token
+//     const accessToken = signAccessToken({ id: existing.user });
+
+//     // set cookie or send body
+//     if (process.env.USE_REFRESH_COOKIE === "true") {
+//       res.cookie("refreshToken", newRefresh.token, {
+//         httpOnly: true,
+//         secure: process.env.NODE_ENV === "production",
+//         sameSite: "strict",
+//         maxAge: newRefresh.expiresAt.getTime() - Date.now()
+//       });
+//       return res.json({ success: true, accessToken });
+//     } else {
+//       return res.json({ success: true, accessToken, refreshToken: newRefresh.token });
+//     }
+//   } catch (err) {
+//     console.error("refreshToken error:", err);
+//     return res.status(500).json({ success: false, message: "Server error" });
+//   }
+// };
+
+
+
+
+// exports.logout = async (req, res) => {
+//   try {
+//     const token = req.body.refreshToken || req.cookies?.refreshToken;
+//     if (!token) return res.status(200).json({ success: true, message: "No token to revoke" });
+
+//     const rt = await RefreshToken.findOne({ token });
+//     if (rt) {
+//       rt.revoked = true;
+//       await rt.save();
+//     }
+//     // clear cookie
+//     res.clearCookie("refreshToken");
+//     return res.json({ success: true, message: "Logged out" });
+//   } catch (err) {
+//     console.error("logout error", err);
+//     return res.status(500).json({ success: false, message: "Server error" });
+//   }
+// };
+
+
+
+
+
+
+
+// const EmailLog = require("../models/EmailLog");
+// const logger = require("../utils/logger");
+// const sendEmail = require("../utils/sendEmail"); // your nodemailer util
+
+// exports.forgotPassword = async (req, res) => {
+//   const { email } = req.body;
+//   const ip = req.ip;
+//   const user = await User.findOne({ email });
+
+//   // rate limiting check earlier...
+//   const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+//   // save email log (pending)
+//   const emailLog = await EmailLog.create({
+//     email,
+//     ip,
+//     user: user?._id ?? null,
+//     subject: "Password reset code",
+//     bodyPreview: `Code: ${code}`.slice(0,200),
+//     status: "sent" // update later if fail
+//   });
+
+//   try {
+//     const sent = await sendEmail(email, "Password reset code", `Your code: ${code}`);
+
+//     if (!sent) {
+//       emailLog.status = "failed";
+//       emailLog.providerResponse = { message: "sendEmail returned false" };
+//       await emailLog.save();
+
+//       logger.error("Email send failed", { email, ip, logId: emailLog._id });
+//       return res.status(500).json({ success: false, message: "Failed to send email" });
+//     }
+
+//     // success
+//     emailLog.status = "sent";
+//     emailLog.providerResponse = { success: true };
+//     await emailLog.save();
+
+//     return res.json({ success: true, message: "Reset code sent" });
+//   } catch (err) {
+//     emailLog.status = "failed";
+//     emailLog.providerResponse = { error: err.message };
+//     await emailLog.save();
+
+//     logger.error("forgotPassword error", { email, err: err.message });
+//     return res.status(500).json({ success: false, message: "Server error" });
+//   }
+// };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// controllers/authController.js
+const User = require("../models/User");
+const RefreshToken = require("../models/RefreshToken");
+const EmailLog = require("../models/EmailLog");
+const EmailRateLimit = require("../models/EmailRateLimit");
+const bcrypt = require("bcryptjs");
+const { OAuth2Client } = require("google-auth-library");
+const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/token");
+const sendEmail = require("../utils/sendEmail");
+const jwt = require("jsonwebtoken");
+
+// Initialize Google OAuth client
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+// JWT Secrets
+const PHONE_VERIF_SECRET = process.env.PHONE_VERIFICATION_JWT_SECRET;
+const APP_JWT_SECRET = process.env.JWT_SECRET;
+
+// Helper: Create refresh token document
+const createRefreshToken = async (userId, metadata = {}) => {
+  const token = signRefreshToken({ id: userId });
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+  
+  const refreshToken = await RefreshToken.create({
+    token,
+    user: userId,
+    ip: metadata.ip,
+    userAgent: metadata.userAgent,
+    expiresAt
+  });
+  
+  return refreshToken;
+};
+
+// Helper: Email rate limiting
+const checkEmailRateLimit = async (email, ip) => {
+  const now = new Date();
+  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+  
+  // Check if blocked
+  const existingBlock = await EmailRateLimit.findOne({
+    $or: [{ email }, { ip }],
+    blockedUntil: { $gt: now }
+  });
+  
+  if (existingBlock) {
+    return {
+      allowed: false,
+      reason: "Too many attempts. Please try again later."
+    };
+  }
+  
+  // Get recent attempts
+  const recentAttempts = await EmailRateLimit.find({
+    $or: [{ email }, { ip }],
+    lastAttempt: { $gte: oneHourAgo }
+  });
+  
+  const maxAttempts = 5;
+  
+  if (recentAttempts.length >= maxAttempts) {
+    // Block for 1 hour
+    const blockedUntil = new Date(now.getTime() + 60 * 60 * 1000);
+    await EmailRateLimit.updateMany(
+      { $or: [{ email }, { ip }] },
+      { blockedUntil }
+    );
+    
+    return {
+      allowed: false,
+      reason: "Too many attempts. Please try again in 1 hour."
+    };
+  }
+  
+  // Record this attempt
+  await EmailRateLimit.create({
+    email,
+    ip,
+    attempts: recentAttempts.length + 1,
+    lastAttempt: now
+  });
+  
+  return { allowed: true };
+};
+
+// Helper to validate phone verification token
+function verifyPhoneVerificationToken(token, phone) {
+  try {
+    const payload = jwt.verify(token, PHONE_VERIF_SECRET);
+    if (payload && payload.purpose === "phone_verification" && payload.phone === phone) {
+      return true;
+    }
+    return false;
+  } catch (err) {
+    return false;
+  }
+}
+
+// ==================== PHONE VERIFICATION SIGNUP ====================
+exports.signupWithPhone = async (req, res) => {
+  try {
+    const { username, email, phone, password, confirmPassword, phoneVerificationToken } = req.body;
+
+    if (!username || !phone || !password || !confirmPassword) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Username, phone, password, and confirmPassword are required." 
+      });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Passwords do not match." 
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Password must be at least 6 characters." 
+      });
+    }
+
+    // Verify phone token
+    if (!phoneVerificationToken || !verifyPhoneVerificationToken(phoneVerificationToken, phone)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid or missing phone verification token." 
+      });
+    }
+
+    // Check duplicates
+    if (email) {
+      const existingEmail = await User.findOne({ email });
+      if (existingEmail) {
+        return res.status(409).json({ 
+          success: false, 
+          message: "Email already registered." 
+        });
+      }
+    }
+
+    const existingPhone = await User.findOne({ phone });
+    if (existingPhone) {
+      return res.status(409).json({ 
+        success: false, 
+        message: "Phone number already in use." 
+      });
+    }
+
+    // Hash password and create user
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const newUser = await User.create({
+      username,
+      email: email || null,
+      phone,
+      password: hashedPassword
+    });
+
+    // Generate tokens
+    const accessToken = signAccessToken({ id: newUser._id });
+    const refreshTokenDoc = await createRefreshToken(newUser._id, {
+      ip: req.ip,
+      userAgent: req.get("User-Agent") || ""
+    });
+
+    if (process.env.USE_REFRESH_COOKIE === "true") {
+      res.cookie("refreshToken", refreshTokenDoc.token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60 * 1000
+      });
+      
+      return res.status(201).json({
+        success: true,
+        message: "Account created successfully.",
+        accessToken,
+        user: {
+          id: newUser._id,
+          username: newUser.username,
+          email: newUser.email,
+          phone: newUser.phone
+        }
+      });
+    } else {
+      return res.status(201).json({
+        success: true,
+        message: "Account created successfully.",
+        accessToken,
+        refreshToken: refreshTokenDoc.token,
+        user: {
+          id: newUser._id,
+          username: newUser.username,
+          email: newUser.email,
+          phone: newUser.phone
+        }
+      });
+    }
+
+  } catch (err) {
+    console.error("Phone verification signup error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error.",
+      error: err.message
+    });
+  }
+};
+
+// ==================== FLEXIBLE LOGIN ====================
+exports.login = async (req, res) => {
+  try {
+    const { email, phone, identifier, password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Password is required." 
+      });
+    }
+
+    let user;
+    if (identifier) {
+      // identifier may be email or phone
+      user = await User.findOne({ $or: [{ email: identifier }, { phone: identifier }] });
+    } else if (email) {
+      user = await User.findOne({ email });
+    } else if (phone) {
+      user = await User.findOne({ phone });
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Provide email, phone, or identifier." 
+      });
+    }
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "User not found." 
+      });
+    }
+
+    if (!user.password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "This account has no password. Use OAuth or reset password." 
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Incorrect password." 
+      });
+    }
+
+    // Generate tokens
+    const accessToken = signAccessToken({ id: user._id });
+    const refreshTokenDoc = await createRefreshToken(user._id, {
+      ip: req.ip,
+      userAgent: req.get("User-Agent") || ""
+    });
+
+    if (process.env.USE_REFRESH_COOKIE === "true") {
+      res.cookie("refreshToken", refreshTokenDoc.token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60 * 1000
+      });
+      
+      return res.json({
+        success: true,
+        message: "Login successful.",
+        accessToken,
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          phone: user.phone
+        }
+      });
+    } else {
+      return res.json({
+        success: true,
+        message: "Login successful.",
+        accessToken,
+        refreshToken: refreshTokenDoc.token,
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          phone: user.phone
+        }
+      });
+    }
+
+  } catch (err) {
+    console.error("Login error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error.",
+      error: err.message
+    });
+  }
+};
+
+// ==================== EMAIL-BASED SIGNUP ====================
+exports.signup = async (req, res) => {
+  try {
+    const { username, email, phone, password, confirmPassword } = req.body;
+
+    if (!username || !email || !password || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Username, email, and passwords are required."
+      });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Passwords do not match."
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters."
+      });
+    }
+
+    const existingUser = await User.findOne({ 
+      $or: [{ email }, { phone }].filter(Boolean) 
+    });
+    
+    if (existingUser) {
+      if (existingUser.email === email) {
+        return res.status(409).json({
+          success: false,
+          message: "Email already registered."
+        });
+      }
+      if (phone && existingUser.phone === phone) {
+        return res.status(409).json({
+          success: false,
+          message: "Phone number already in use."
+        });
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const newUser = await User.create({
+      username,
+      email,
+      phone: phone || "",
+      password: hashedPassword
+    });
+
+    // Generate tokens
+    const accessToken = signAccessToken({ id: newUser._id });
+    const refreshTokenDoc = await createRefreshToken(newUser._id, {
+      ip: req.ip,
+      userAgent: req.get("User-Agent") || ""
+    });
+
+    if (process.env.USE_REFRESH_COOKIE === "true") {
+      res.cookie("refreshToken", refreshTokenDoc.token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60 * 1000
+      });
+      
+      return res.status(201).json({
+        success: true,
+        message: "Account created successfully.",
+        accessToken,
+        user: {
+          id: newUser._id,
+          username: newUser.username,
+          email: newUser.email,
+          phone: newUser.phone
+        }
+      });
+    } else {
+      return res.status(201).json({
+        success: true,
+        message: "Account created successfully.",
+        accessToken,
+        refreshToken: refreshTokenDoc.token,
+        user: {
+          id: newUser._id,
+          username: newUser.username,
+          email: newUser.email,
+          phone: newUser.phone
+        }
+      });
+    }
+
+  } catch (err) {
+    console.error("Signup error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error.",
+      error: err.message
+    });
+  }
+};
+
+// ==================== GOOGLE AUTHENTICATION ====================
+exports.googleAuth = async (req, res) => {
+  try {
+    const { idToken } = req.body;
+    
+    if (!idToken) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Google ID token is required." 
+      });
+    }
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+
+    const payload = ticket.getPayload();
+    
+    if (!payload) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid Google token." 
+      });
+    }
+
+    const { sub: googleId, email, name, email_verified } = payload;
+
+    if (!email_verified) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Google account email not verified." 
+      });
+    }
+
+    let user = await User.findOne({ 
+      $or: [{ googleId }, { email }] 
+    });
+
+    if (user) {
+      if (!user.googleId) {
+        user.googleId = googleId;
+        if (!user.username && name) {
+          user.username = name;
+        }
+        await user.save();
+      }
+    } else {
+      user = await User.create({
+        username: name || email.split("@")[0],
+        email,
+        phone: "",
+        password: "",
+        googleId
+      });
+    }
+
+    // Generate tokens
+    const accessToken = signAccessToken({ id: user._id });
+    const refreshTokenDoc = await createRefreshToken(user._id, {
+      ip: req.ip,
+      userAgent: req.get("User-Agent") || ""
+    });
+
+    if (process.env.USE_REFRESH_COOKIE === "true") {
+      res.cookie("refreshToken", refreshTokenDoc.token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60 * 1000
+      });
+      
+      return res.json({
+        success: true,
+        message: "Google authentication successful.",
+        accessToken,
+        user: {
+          id: user._id,
+          email: user.email,
+          username: user.username,
+          phone: user.phone
+        }
+      });
+    } else {
+      return res.json({
+        success: true,
+        message: "Google authentication successful.",
+        accessToken,
+        refreshToken: refreshTokenDoc.token,
+        user: {
+          id: user._id,
+          email: user.email,
+          username: user.username,
+          phone: user.phone
+        }
+      });
+    }
+
+  } catch (err) {
+    console.error("Google auth error:", err);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Google authentication failed.",
+      error: err.message 
+    });
+  }
+};
+
+// ==================== FORGOT PASSWORD ====================
+exports.forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  const ip = req.ip;
+
+  try {
+    if (!email) {
+      return res.json({
+        success: true,
+        message: "If the email exists, a reset code has been sent."
+      });
+    }
+
+    // Rate limiting check
+    const rateLimitCheck = await checkEmailRateLimit(email, ip);
+    if (!rateLimitCheck.allowed) {
+      return res.json({
+        success: true,
+        message: "If the email exists, a reset code has been sent."
+      });
+    }
+
+    const user = await User.findOne({ email });
+    
+    // Create email log (pending)
+    const emailLog = await EmailLog.create({
+      email,
+      ip,
+      user: user?._id || null,
+      subject: "Password Reset Code",
+      bodyPreview: "Your password reset code",
+      status: "sent"
+    });
+
+    if (!user) {
+      // Update email log
+      emailLog.status = "failed";
+      emailLog.providerResponse = { message: "User not found" };
+      await emailLog.save();
+
+      // Don't reveal whether email exists
+      return res.json({
+        success: true,
+        message: "If the email exists, a reset code has been sent."
+      });
+    }
+
+    // Generate reset code
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    user.resetCode = resetCode;
+    user.resetCodeExpiry = expiry;
+    await user.save();
+
+    // Send email
+    const emailText = `Your password reset code is: ${resetCode}\n\nIt expires in 10 minutes.`;
+    const emailHtml = `
+      <div>
+        <h2>Password Reset Request</h2>
+        <p>Your password reset code is: <strong>${resetCode}</strong></p>
+        <p>This code will expire in 10 minutes.</p>
+        <p>If you didn't request this, please ignore this email.</p>
+      </div>
+    `;
+
+    // Wrap email send so transport failures never change the response shape
+    try {
+      const sent = await sendEmail(
+        email,
+        "Your Password Reset Code",
+        emailText,
+        emailHtml
+      );
+      emailLog.status = sent ? "sent" : "failed";
+      emailLog.providerResponse = sent ? { success: true } : { message: "sendEmail returned false" };
+    } catch (emailErr) {
+      console.error("Forgot password — email send error (silent):", emailErr.message);
+      emailLog.status = "failed";
+      emailLog.providerResponse = { error: emailErr.message };
+    }
+    await emailLog.save();
+
+    // Always return the same generic 200 — never reveal whether the email exists
+    return res.status(200).json({
+      success: true,
+      message: "If the email exists, a reset code has been sent."
+    });
+
+  } catch (err) {
+    // Swallow internal errors silently — returning a 500 would leak a different
+    // response shape that could be used for user enumeration.
+    console.error("Forgot password error:", err);
+    return res.status(200).json({
+      success: true,
+      message: "If the email exists, a reset code has been sent."
+    });
+  }
+};
+
+// ==================== RESET PASSWORD ====================
+exports.resetPassword = async (req, res) => {
+  try {
+    const { email, code, newPassword } = req.body;
+
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Email, code and new password are required."
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters."
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found."
+      });
+    }
+
+    if (user.resetCode !== code) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid code."
+      });
+    }
+
+    if (!user.resetCodeExpiry || user.resetCodeExpiry < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "Code expired."
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    user.resetCode = null;
+    user.resetCodeExpiry = null;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: "Password reset successful."
+    });
+
+  } catch (err) {
+    console.error("Reset password error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error.",
+      error: err.message
+    });
+  }
+};
+
+// ==================== REFRESH TOKEN ====================
+exports.refreshToken = async (req, res) => {
+  try {
+    const token = req.body.refreshToken || req.cookies?.refreshToken;
+    
+    if (!token) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Refresh token missing" 
+      });
+    }
+
+    // Verify JWT first
+    let payload;
+    try {
+      payload = verifyRefreshToken(token);
+    } catch (err) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Invalid refresh token" 
+      });
+    }
+
+    const existing = await RefreshToken.findOne({ token });
+
+    if (!existing) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Refresh token not found" 
+      });
+    }
+
+    if (existing.revoked) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Refresh token revoked" 
+      });
+    }
+
+    if (existing.isExpired()) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Refresh token expired" 
+      });
+    }
+
+    // Token rotation: create new refresh token
+    const newRefresh = await createRefreshToken(existing.user, {
+      ip: req.ip,
+      userAgent: req.get("User-Agent") || ""
+    });
+
+    // Revoke old token
+    existing.revoked = true;
+    existing.replacedBy = newRefresh.token;
+    await existing.save();
+
+    // Generate new access token
+    const accessToken = signAccessToken({ id: existing.user });
+
+    if (process.env.USE_REFRESH_COOKIE === "true") {
+      res.cookie("refreshToken", newRefresh.token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60 * 1000
+      });
+      
+      return res.json({ 
+        success: true, 
+        accessToken 
+      });
+    } else {
+      return res.json({ 
+        success: true, 
+        accessToken, 
+        refreshToken: newRefresh.token 
+      });
+    }
+  } catch (err) {
+    console.error("Refresh token error:", err);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Server error" 
+    });
+  }
+};
+
+// ==================== LOGOUT ====================
+exports.logout = async (req, res) => {
+  try {
+    const token = req.body.refreshToken || req.cookies?.refreshToken;
+    
+    if (token) {
+      const rt = await RefreshToken.findOne({ token });
+      if (rt) {
+        rt.revoked = true;
+        await rt.save();
+      }
+    }
+
+    // Clear cookie
+    res.clearCookie("refreshToken");
+    
+    return res.json({ 
+      success: true, 
+      message: "Logged out successfully" 
+    });
+  } catch (err) {
+    console.error("Logout error:", err);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Server error" 
+    });
+  }
+};
+
+// ==================== CHECK AUTH STATUS ====================
+exports.checkAuth = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found."
+      });
+    }
+
+    return res.json({
+      success: true,
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        phone: user.phone
+      }
+    });
+
+  } catch (err) {
+    console.error("Check auth error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error.",
+      error: err.message
+    });
+  }
+};
+
+
+//7anshilha
+// ==================== RESET RATE LIMIT (FOR TESTING) ====================
+exports.resetRateLimit = async (req, res) => {
+  try {
+    await EmailRateLimit.deleteMany({});
+    console.log("Rate limit records cleared");
+    
+    return res.json({
+      success: true,
+      message: "Rate limits reset successfully. You can now test again."
+    });
+  } catch (err) {
+    console.error("Reset rate limit error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to reset rate limits",
+      error: err.message
+    });
+  }
+};
+
+
+module.exports = exports;

@@ -1,0 +1,11 @@
+npm init -y
+
+npm install express mongoose bcryptjs jsonwebtoken cors dotenv nodemailer google-auth-library winston node-cron express-rate-limit
+
+npm install --save-dev nodemon
+
+Then add these scripts to package.json (open it and replace the "scripts" part):
+"scripts": {
+  "start": "node server.js",
+  "dev": "nodemon server.js"
+}
