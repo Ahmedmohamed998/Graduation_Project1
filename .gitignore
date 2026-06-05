@@ -4,6 +4,5 @@ auth-backend/.env
 home-backend/.env
 grad_project_ai/.env
 
-# Firebase service account
-*.json
-hasibha-notificatio-*.json
+# Firebase service account key (never commit this)
+hasibha-notificatio-firebase-adminsdk-fbsvc-ac5586ab12.json
