@@ -13,6 +13,9 @@ dotenv.config();
 
 const app = express();
 
+// Trust Nginx reverse proxy (fixes express-rate-limit X-Forwarded-For warning)
+app.set('trust proxy', 1);
+
 // ========== MIDDLEWARE ==========
 // CORS configuration
 app.use(cors({
