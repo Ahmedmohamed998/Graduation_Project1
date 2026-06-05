@@ -1,7 +1,8 @@
 import httpx
 import asyncio
+import os
 
-HOME_BACKEND_URL = "http://localhost:5001"
+HOME_BACKEND_URL = os.environ.get("HOME_BACKEND_URL", "http://home-backend:5001")
 
 async def fetch_endpoint(client: httpx.AsyncClient, endpoint: str, access_token: str):
     headers = {"Authorization": f"Bearer {access_token}"}
