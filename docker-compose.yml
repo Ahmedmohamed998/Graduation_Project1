@@ -1,6 +1,26 @@
 services:
 
   # ─────────────────────────────────────────────
+  #  0. MONGODB  (local, replaces Atlas)
+  # ─────────────────────────────────────────────
+  mongodb:
+    image: mongo:7.0
+    container_name: hasibha-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"          # expose for optional local tools (Compass etc.)
+    volumes:
+      - mongo_data:/data/db    # persistent storage — data survives restarts
+    networks:
+      - hasibha-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─────────────────────────────────────────────
   #  1. AUTH BACKEND  (Node.js · port 3210)
   # ─────────────────────────────────────────────
   auth-backend:
@@ -16,8 +36,12 @@ services:
       - ./auth-backend/.env
     environment:
       - NODE_ENV=production
+      - MONGO_URI=mongodb://mongodb:27017/hexaverse-auth
     networks:
       - hasibha-net
+    depends_on:
+      mongodb:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3210/health"]
       interval: 30s
@@ -41,6 +65,7 @@ services:
       - ./home-backend/.env
     environment:
       - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/hexaverse-auth
       # Override AI_AGENT_URL to use the Docker service name instead of localhost
       - AI_AGENT_URL=http://ai-service:8000
       # Firebase JSON is mounted from the project root
@@ -51,6 +76,8 @@ services:
     networks:
       - hasibha-net
     depends_on:
+      mongodb:
+        condition: service_healthy
       ai-service:
         condition: service_healthy
     healthcheck:
@@ -74,8 +101,14 @@ services:
       - "8000:8000"
     env_file:
       - ./grad_project_ai/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/hexaverse-auth
+      - HOME_BACKEND_URL=http://home-backend:5001
     networks:
       - hasibha-net
+    depends_on:
+      mongodb:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/docs').raise_for_status()"]
       interval: 30s
@@ -89,3 +122,9 @@ services:
 networks:
   hasibha-net:
     driver: bridge
+
+# ─────────────────────────────────────────────
+#  Named volumes (data persists across restarts)
+# ─────────────────────────────────────────────
+volumes:
+  mongo_data:
