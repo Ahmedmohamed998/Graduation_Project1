@@ -21,12 +21,18 @@ WORKDIR /app
 #  - tesseract-ocr   → pytesseract OCR
 #  - poppler-utils   → pdf2image (PDF → images)
 #  - libgomp1        → scikit-learn / numpy OpenMP
+#  - libssl3         → Azure Speech SDK TLS/SSL stack
+#  - libasound2      → Azure Speech SDK audio layer (required even without mic)
+#  - ca-certificates → TLS certificate verification
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-ara \
     tesseract-ocr-eng \
     poppler-utils \
     libgomp1 \
+    libssl3 \
+    libasound2 \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed Python packages from builder

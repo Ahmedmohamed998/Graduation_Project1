@@ -94,8 +94,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 // Voice pipeline
 app.use('/api/voice', require('./routes/voice'));
 
-// OCR pipeline (with size limit middleware)
-app.use('/api/ocr', express.raw({ limit: '10mb', type: '*/*' }));
+// OCR pipeline
 app.use('/api/ocr', require('./routes/ocr'));
 
 // 404 handler
