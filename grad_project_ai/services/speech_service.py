@@ -1,22 +1,30 @@
 import os
 import io
 import time
-import tempfile
 import asyncio
+import httpx
 from pathlib import Path
 
 # ─────────────────────────────────────────────
 #  speech_service.py
-#  Azure Cognitive Services Speech SDK wrapper
-#  Supports: Arabic (ar-EG), English (en-US)
-#  Auto-language detection enabled by default
+#  Azure Speech-to-Text via REST API
+#  (replaces the SDK which has OpenSSL compat issues in Docker)
+#  Supports: Arabic (ar-EG), English (en-US), auto-detect
 # ─────────────────────────────────────────────
 
 SUPPORTED_AUDIO_FORMATS = {".wav", ".mp3", ".webm", ".ogg", ".m4a"}
 
+# Map file extension → Content-Type accepted by Azure STT REST API
+_CONTENT_TYPE_MAP = {
+    ".wav":  "audio/wav",
+    ".mp3":  "audio/mpeg",
+    ".webm": "audio/webm; codecs=opus",
+    ".ogg":  "audio/ogg; codecs=opus",
+    ".m4a":  "audio/mp4",
+}
+
 
 def _detect_format(filename: str) -> str:
-    """Return the file extension in lowercase, e.g. '.wav'"""
     return Path(filename).suffix.lower()
 
 
@@ -26,18 +34,18 @@ async def transcribe_audio(
     language_hint: str = "auto",
 ) -> dict:
     """
-    Transcribe audio bytes using Azure Cognitive Services Speech SDK.
+    Transcribe audio bytes using Azure Speech-to-Text REST API.
 
     Args:
-        audio_bytes : Raw audio file bytes.
-        filename    : Original filename — used to detect format/extension.
+        audio_bytes   : Raw audio file bytes.
+        filename      : Original filename — used to detect the audio format.
         language_hint : "auto" | "ar" | "en"
 
     Returns:
         {
             "transcript"       : str,
             "language"         : "ar" | "en" | "mixed",
-            "confidence"       : float (0‑1),
+            "confidence"       : float (0–1),
             "duration_seconds" : float,
         }
 
@@ -50,148 +58,97 @@ async def transcribe_audio(
 
     ext = _detect_format(filename)
     if ext not in SUPPORTED_AUDIO_FORMATS:
-        raise ValueError(f"Unsupported audio format: {ext}")
+        raise ValueError(f"Unsupported audio format '{ext}'. Supported: {SUPPORTED_AUDIO_FORMATS}")
 
-    try:
-        import azure.cognitiveservices.speech as speechsdk  # type: ignore
-    except ImportError:
-        raise RuntimeError(
-            "azure-cognitiveservices-speech is not installed. "
-            "Run: pip install azure-cognitiveservices-speech==1.38.0"
-        )
-
-    speech_key = os.getenv("AZURE_SPEECH_KEY")
+    speech_key    = os.getenv("AZURE_SPEECH_KEY")
     speech_region = os.getenv("AZURE_SPEECH_REGION")
 
     if not speech_key or not speech_region:
-        raise RuntimeError(
-            "AZURE_SPEECH_KEY and AZURE_SPEECH_REGION must be set in .env"
-        )
+        raise RuntimeError("AZURE_SPEECH_KEY and AZURE_SPEECH_REGION must be set in .env")
 
-    # Write audio bytes to a temp file (SDK needs a file path for push-stream)
-    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-        tmp.write(audio_bytes)
-        tmp_path = tmp.name
+    content_type = _CONTENT_TYPE_MAP.get(ext, "audio/wav")
 
-    try:
-        result = await asyncio.to_thread(
-            _run_recognition_sync, tmp_path, language_hint, speech_key, speech_region
-        )
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-    return result
-
-
-def _run_recognition_sync(
-    audio_path: str,
-    language_hint: str,
-    speech_key: str,
-    speech_region: str,
-) -> dict:
-    """Synchronous Azure STT call (run in thread via asyncio.to_thread)."""
-    import azure.cognitiveservices.speech as speechsdk  # type: ignore
-
-    speech_config = speechsdk.SpeechConfig(
-        subscription=speech_key,
-        region=speech_region,
-    )
-    # Request detailed results so we can read confidence
-    speech_config.output_format = speechsdk.OutputFormat.Detailed
-
-    audio_config = speechsdk.audio.AudioConfig(filename=audio_path)
-
-    # ── Language configuration ───────────────────────────────────────────────
+    # Which languages to attempt (in order)
     if language_hint == "ar":
-        speech_config.speech_recognition_language = "ar-EG"
-        recognizer = speechsdk.SpeechRecognizer(
-            speech_config=speech_config,
-            audio_config=audio_config,
-        )
+        candidates = ["ar-EG"]
     elif language_hint == "en":
-        speech_config.speech_recognition_language = "en-US"
-        recognizer = speechsdk.SpeechRecognizer(
-            speech_config=speech_config,
-            audio_config=audio_config,
-        )
+        candidates = ["en-US"]
     else:
-        # Auto-detect: Arabic Egypt + English US
-        auto_detect_config = speechsdk.languageconfig.AutoDetectSourceLanguageConfig(
-            languages=["ar-EG", "en-US"]
-        )
-        recognizer = speechsdk.SpeechRecognizer(
-            speech_config=speech_config,
-            audio_config=audio_config,
-            auto_detect_source_language_config=auto_detect_config,
-        )
+        # Auto: try Arabic first (primary user-base), then English
+        candidates = ["ar-EG", "en-US"]
 
     start_time = time.time()
-    result = recognizer.recognize_once_async().get()
-    duration_seconds = round(time.time() - start_time, 2)
+    last_error  = None
 
-    # ── Handle result ────────────────────────────────────────────────────────
-    if result.reason == speechsdk.ResultReason.RecognizedSpeech:
-        transcript = result.text.strip()
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        for locale in candidates:
+            url = (
+                f"https://{speech_region}.stt.speech.microsoft.com"
+                f"/speech/recognition/conversation/cognitiveservices/v1"
+            )
+            params  = {"language": locale, "format": "detailed"}
+            headers = {
+                "Ocp-Apim-Subscription-Key": speech_key,
+                "Content-Type": content_type,
+            }
 
-        # Detected language code, e.g. "ar-EG" or "en-US"
-        detected_lang_tag = ""
-        try:
-            auto_lang_result = speechsdk.AutoDetectSourceLanguageResult(result)
-            detected_lang_tag = auto_lang_result.language or ""
-        except Exception:
-            detected_lang_tag = speech_config.speech_recognition_language or ""
+            try:
+                resp = await client.post(
+                    url, params=params, headers=headers, content=audio_bytes
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except httpx.HTTPStatusError as exc:
+                last_error = f"HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+                continue
+            except Exception as exc:
+                last_error = str(exc)
+                continue
 
-        lang_code = _normalize_language(detected_lang_tag)
+            status = data.get("RecognitionStatus", "")
 
-        # Confidence from detailed JSON if available
-        confidence = _extract_confidence(result)
+            if status == "Success":
+                transcript = data.get("DisplayText", "").strip()
+                confidence = 0.8
+                nb = data.get("NBest", [])
+                if nb:
+                    confidence = round(float(nb[0].get("Confidence", 0.8)), 4)
 
-        return {
-            "transcript": transcript,
-            "language": lang_code,
-            "confidence": confidence,
-            "duration_seconds": duration_seconds,
-        }
+                lang_code = "ar" if locale.startswith("ar") else "en"
+                duration  = round(time.time() - start_time, 2)
 
-    elif result.reason == speechsdk.ResultReason.NoMatch:
-        raise RuntimeError(
-            f"No speech recognized. NoMatchDetails: {result.no_match_details}"
-        )
-    elif result.reason == speechsdk.ResultReason.Canceled:
-        cancellation = speechsdk.CancellationDetails(result)
-        raise RuntimeError(
-            f"Transcription canceled: {cancellation.reason}. "
-            f"Error: {cancellation.error_details}"
-        )
-    else:
-        raise RuntimeError(f"Unexpected recognition result reason: {result.reason}")
+                return {
+                    "transcript":       transcript,
+                    "language":         lang_code,
+                    "confidence":       confidence,
+                    "duration_seconds": duration,
+                }
 
+            elif status == "NoMatch":
+                # No speech detected in this locale — try next candidate
+                continue
 
-def _normalize_language(tag: str) -> str:
-    """Map Azure language tags like 'ar-EG' → 'ar', 'en-US' → 'en'."""
-    tag = (tag or "").lower()
-    if tag.startswith("ar"):
-        return "ar"
-    if tag.startswith("en"):
-        return "en"
-    return "mixed"
+            elif status == "InitialSilenceTimeout":
+                # Audio is silent — return empty transcript rather than erroring
+                return {
+                    "transcript":       "",
+                    "language":         "mixed",
+                    "confidence":       0.0,
+                    "duration_seconds": round(time.time() - start_time, 2),
+                }
 
+            else:
+                last_error = f"Azure STT status: {status}"
+                continue
 
-def _extract_confidence(result) -> float:
-    """
-    Extract NBest[0].Confidence from the detailed recognition result.
-    Falls back to 0.8 if detailed JSON is unavailable.
-    """
-    import json as _json
+    # All candidates exhausted — no speech found
+    if last_error:
+        raise RuntimeError(f"Transcription failed: {last_error}")
 
-    try:
-        detail = _json.loads(result.json)
-        nb = detail.get("NBest", [])
-        if nb:
-            return round(float(nb[0].get("Confidence", 0.8)), 4)
-    except Exception:
-        pass
-    return 0.8
+    # Soft return: no speech detected in any locale
+    return {
+        "transcript":       "",
+        "language":         "mixed",
+        "confidence":       0.0,
+        "duration_seconds": round(time.time() - start_time, 2),
+    }
