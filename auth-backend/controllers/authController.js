@@ -973,19 +973,6 @@ function renderVerificationPage(success, message) {
           margin-bottom: 30px;
           line-height: 1.5;
         }
-        .btn {
-          display: inline-block;
-          background-color: ${primaryColor};
-          color: #ffffff;
-          text-decoration: none;
-          padding: 12px 24px;
-          border-radius: 6px;
-          font-weight: bold;
-          transition: background-color 0.3s;
-        }
-        .btn:hover {
-          background-color: #388E3C;
-        }
       </style>
     </head>
     <body>
@@ -994,7 +981,6 @@ function renderVerificationPage(success, message) {
         <div class="icon">${icon}</div>
         <h1>${title}</h1>
         <p>${message}</p>
-        <a href="https://hasibha.online" class="btn">Go to App</a>
       </div>
     </body>
     </html>
