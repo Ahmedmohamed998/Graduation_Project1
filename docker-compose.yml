@@ -7,8 +7,6 @@ services:
     image: mongo:7.0
     container_name: hasibha-mongo
     restart: unless-stopped
-    ports:
-      - "27017:27017"          # expose for optional local tools (Compass etc.)
     volumes:
       - mongo_data:/data/db    # persistent storage — data survives restarts
     networks:
