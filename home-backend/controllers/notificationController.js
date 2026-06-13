@@ -135,10 +135,31 @@ const testNotification = async (req, res, next) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────
+//  POST /api/notifications/trigger-daily-reminder
+//  Manually trigger the daily reminder check (for testing/cron simulation).
+// ─────────────────────────────────────────────────────────
+const triggerDailyReminder = async (req, res, next) => {
+  try {
+    const { processDailyReminders } = require('../utils/scheduler');
+    
+    // Trigger in the background or await depending on requirement
+    await processDailyReminders();
+
+    res.status(200).json({
+      message: 'Daily expense reminder scan triggered successfully',
+    });
+  } catch (error) {
+    logger.error('Error manual triggering daily reminder scan:', error);
+    next(error);
+  }
+};
+
 module.exports = {
   registerToken,
   unregisterToken,
   getMyDevices,
   sendNotification,
   testNotification,
+  triggerDailyReminder,
 };

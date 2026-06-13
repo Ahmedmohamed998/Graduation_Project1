@@ -20,6 +20,10 @@ const userProfileSchema = new mongoose.Schema({
         default: 'USD',
         enum: ['USD', 'EUR', 'GBP', 'EGP', 'SAR', 'AED', 'JPY', 'AUD', 'CAD', 'CHF']
     },
+    timezone: {
+        type: String,
+        default: 'UTC'
+    },
     // App Preferences
     preferences: {
         theme: {
@@ -50,6 +54,18 @@ const userProfileSchema = new mongoose.Schema({
                 default: false
             },
             monthlyReports: {
+                type: Boolean,
+                default: true
+            },
+            dailyReminder: {
+                type: Boolean,
+                default: true
+            },
+            weeklyReport: {
+                type: Boolean,
+                default: true
+            },
+            streakAlerts: {
                 type: Boolean,
                 default: true
             }

@@ -12,6 +12,9 @@ router.put('/theme', verifyToken, settingsController.updateTheme);
 // Update currency
 router.put('/currency', verifyToken, settingsController.updateCurrency);
 
+// Update timezone
+router.put('/timezone', verifyToken, settingsController.updateTimezone);
+
 // Update date format
 router.put('/date-format', verifyToken, settingsController.updateDateFormat);
 

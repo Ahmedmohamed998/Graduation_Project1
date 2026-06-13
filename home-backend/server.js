@@ -1,12 +1,12 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-const cors = require('cors');
-const cookieParser = require('cookie-parser');
-const logger = require('./utils/logger');
-const errorHandler = require('./middleware/errorHandler');
-const { seedSystemCategories } = require('./utils/seedCategories');
-const { initFirebase }         = require('./utils/firebase');
+const express = require("express");
+const mongoose = require("mongoose");
+const dotenv = require("dotenv");
+const cors = require("cors");
+const cookieParser = require("cookie-parser");
+const logger = require("./utils/logger");
+const errorHandler = require("./middleware/errorHandler");
+const { seedSystemCategories } = require("./utils/seedCategories");
+const { initFirebase } = require("./utils/firebase");
 
 // Load environment variables
 dotenv.config();
@@ -14,16 +14,18 @@ dotenv.config();
 const app = express();
 
 // Trust Nginx reverse proxy (fixes express-rate-limit X-Forwarded-For warning)
-app.set('trust proxy', 1);
+app.set("trust proxy", 1);
 
 // ========== MIDDLEWARE ==========
 // CORS configuration
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 
 // Body parser
 app.use(express.json());
@@ -37,7 +39,7 @@ app.use(mongoSanitize());
 const rateLimit = require("express-rate-limit");
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // max 200 requests per IP per window
+  max: 2000, // max 2000 requests per IP per window
   message: { error: "Too many requests, please try again later." },
 });
 app.use("/api/", limiter);
@@ -49,57 +51,66 @@ app.use((req, res, next) => {
 });
 
 // ========== DATABASE CONNECTION ==========
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose
+  .connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
   .then(async () => {
-    logger.info('✅ Connected to MongoDB successfully');
-    console.log('✅ MongoDB connected - Database:', mongoose.connection.name);
+    logger.info("✅ Connected to MongoDB successfully");
+    console.log("✅ MongoDB connected - Database:", mongoose.connection.name);
     await seedSystemCategories();
+    
+    // Initialize scheduled cron jobs
+    try {
+      const { initScheduler } = require("./utils/scheduler");
+      initScheduler();
+    } catch (schedErr) {
+      logger.error("❌ Failed to initialize scheduler:", schedErr);
+    }
   })
   .catch((err) => {
-    logger.error('❌ MongoDB connection error:', err);
-    console.error('❌ Failed to connect to MongoDB:', err.message);
+    logger.error("❌ MongoDB connection error:", err);
+    console.error("❌ Failed to connect to MongoDB:", err.message);
     process.exit(1);
   });
 
 // ========== ROUTES ==========
 // Health check
-app.get('/health', (req, res) => {
+app.get("/health", (req, res) => {
   res.status(200).json({
-    status: 'ok',
-    service: 'home-backend',
-    timestamp: new Date().toISOString()
+    status: "ok",
+    service: "home-backend",
+    timestamp: new Date().toISOString(),
   });
 });
 
 // API Routes
-app.use('/api/dashboard', require('./routes/dashboard'));
-app.use('/api/transactions', require('./routes/transactions'));
-app.use('/api/budgets', require('./routes/budgets'));
-app.use('/api/savings', require('./routes/savings'));
-app.use('/api/debts', require('./routes/debts'));
-app.use('/api/analytics', require('./routes/analytics'));
-app.use('/api/profile', require('./routes/profile'));
-app.use('/api/offers', require('./routes/offers'));
-app.use('/api/settings', require('./routes/settings'));
-app.use('/api/help',       require('./routes/help'));
-app.use('/api/ai',         require('./routes/ai'));
-app.use('/api/categories', require('./routes/categories'));
+app.use("/api/dashboard", require("./routes/dashboard"));
+app.use("/api/transactions", require("./routes/transactions"));
+app.use("/api/budgets", require("./routes/budgets"));
+app.use("/api/savings", require("./routes/savings"));
+app.use("/api/debts", require("./routes/debts"));
+app.use("/api/analytics", require("./routes/analytics"));
+app.use("/api/profile", require("./routes/profile"));
+app.use("/api/offers", require("./routes/offers"));
+app.use("/api/settings", require("./routes/settings"));
+app.use("/api/help", require("./routes/help"));
+app.use("/api/ai", require("./routes/ai"));
+app.use("/api/categories", require("./routes/categories"));
 
 // Notifications (FCM)
-app.use('/api/notifications', require('./routes/notifications'));
+app.use("/api/notifications", require("./routes/notifications"));
 
 // Voice pipeline
-app.use('/api/voice', require('./routes/voice'));
+app.use("/api/voice", require("./routes/voice"));
 
 // OCR pipeline
-app.use('/api/ocr', require('./routes/ocr'));
+app.use("/api/ocr", require("./routes/ocr"));
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  res.status(404).json({ error: "Route not found" });
 });
 
 // ========== ERROR HANDLER ==========
@@ -109,7 +120,7 @@ app.use(errorHandler);
 try {
   initFirebase();
 } catch (err) {
-  console.error('Firebase initialization error (non-fatal):', err.message);
+  console.error("Firebase initialization error (non-fatal):", err.message);
 }
 
 // ========== START SERVER ==========

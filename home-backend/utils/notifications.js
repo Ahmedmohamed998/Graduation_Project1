@@ -180,6 +180,55 @@ async function sendCustomNotification(userId, title, body, data = {}) {
   return sendToUser(userId, title, body, data);
 }
 
+/**
+ * Daily reminder: user has not recorded any expenses today
+ */
+async function notifyDailyReminder(userId) {
+  return sendToUser(
+    userId,
+    "Don't forget to track today's expenses 💰",
+    "You haven't recorded any expenses today. Take a moment to update your spending and keep your budget on track.",
+    { type: 'daily_reminder' }
+  );
+}
+
+/**
+ * Weekly summary notification
+ */
+async function notifyWeeklySummary(userId, count, totalSpent, currency = 'USD') {
+  return sendToUser(
+    userId,
+    '📊 Your Weekly Spending Summary',
+    `You logged ${count} transaction(s) this week totaling ${currency} ${totalSpent}. Keep tracking to control your budget!`,
+    { type: 'weekly_summary', count: String(count), totalSpent: String(totalSpent) }
+  );
+}
+
+/**
+ * Streak milestone notification
+ */
+async function notifyStreak(userId, daysCount) {
+  return sendToUser(
+    userId,
+    `🔥 ${daysCount}-Day Tracking Streak!`,
+    `Amazing! You've tracked your expenses for ${daysCount} days in a row. Keep the momentum going!`,
+    { type: 'streak_alert', daysCount: String(daysCount) }
+  );
+}
+
+/**
+ * Inactivity re-engagement notification
+ */
+async function notifyInactiveUser(userId, displayName) {
+  const name = displayName || 'there';
+  return sendToUser(
+    userId,
+    `👋 We miss you, ${name}!`,
+    "It's been a few days since you last tracked your spending. Let's get back on track with your budgeting goals!",
+    { type: 'inactivity_reminder' }
+  );
+}
+
 module.exports = {
   sendToToken,
   sendToUser,
@@ -189,4 +238,8 @@ module.exports = {
   notifyGoalMilestone,
   notifyLargeExpense,
   sendCustomNotification,
+  notifyDailyReminder,
+  notifyWeeklySummary,
+  notifyStreak,
+  notifyInactiveUser,
 };

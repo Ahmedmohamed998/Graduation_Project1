@@ -19,6 +19,7 @@ exports.getSettings = async (req, res) => {
 
         res.json({
             currency: profile.currency,
+            timezone: profile.timezone || 'UTC',
             preferences: profile.preferences || {
                 theme: 'auto',
                 dateFormat: 'MM/DD/YYYY',
@@ -27,7 +28,10 @@ exports.getSettings = async (req, res) => {
                     goalReminders: true,
                     billReminders: true,
                     savingsTips: false,
-                    monthlyReports: true
+                    monthlyReports: true,
+                    dailyReminder: true,
+                    weeklyReport: true,
+                    streakAlerts: true
                 },
                 biometricEnabled: false,
                 language: 'en'
@@ -36,6 +40,42 @@ exports.getSettings = async (req, res) => {
     } catch (error) {
         console.error('Get settings error:', error);
         res.status(500).json({ error: 'Failed to get settings' });
+    }
+};
+
+// Update timezone
+exports.updateTimezone = async (req, res) => {
+    try {
+        const { timezone } = req.body;
+        const userId = req.userId;
+
+        if (!timezone || typeof timezone !== 'string') {
+            return res.status(400).json({ error: 'Timezone string is required' });
+        }
+
+        // Validate timezone name
+        try {
+            Intl.DateTimeFormat(undefined, { timeZone: timezone });
+        } catch (e) {
+            return res.status(400).json({ error: 'Invalid timezone name' });
+        }
+
+        let profile = await UserProfile.findOne({ userId });
+
+        if (!profile) {
+            profile = await UserProfile.create({ userId });
+        }
+
+        profile.timezone = timezone;
+        await profile.save();
+
+        res.json({
+            message: 'Timezone updated successfully',
+            timezone: profile.timezone
+        });
+    } catch (error) {
+        console.error('Update timezone error:', error);
+        res.status(500).json({ error: 'Failed to update timezone' });
     }
 };
 
@@ -195,6 +235,9 @@ exports.updateNotifications = async (req, res) => {
         if (typeof billReminders === 'boolean') profile.preferences.notifications.billReminders = billReminders;
         if (typeof savingsTips === 'boolean') profile.preferences.notifications.savingsTips = savingsTips;
         if (typeof monthlyReports === 'boolean') profile.preferences.notifications.monthlyReports = monthlyReports;
+        if (typeof dailyReminder === 'boolean') profile.preferences.notifications.dailyReminder = dailyReminder;
+        if (typeof weeklyReport === 'boolean') profile.preferences.notifications.weeklyReport = weeklyReport;
+        if (typeof streakAlerts === 'boolean') profile.preferences.notifications.streakAlerts = streakAlerts;
 
         await profile.save();
 

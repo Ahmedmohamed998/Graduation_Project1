@@ -58,6 +58,78 @@ const createTransaction = async (req, res, next) => {
 
         logger.info(`Transaction created: ${type} of ${amount} for user ${userId}`);
 
+        // ── FCM: Streak tracking celebration ──────────────────────────────
+        if (type === 'expense') {
+            (async () => {
+                try {
+                    const UserProfile = require('../models/UserProfile');
+                    const NotificationLog = require('../models/NotificationLog');
+                    const { notifyStreak } = require('../utils/notifications');
+                    
+                    const profile = await UserProfile.findOne({ userId });
+                    if (profile?.preferences?.notifications?.streakAlerts !== false) {
+                        const tz = profile?.timezone || 'UTC';
+                        
+                        // Helper to get local date string YYYY-MM-DD
+                        const getLocalDateStr = (timeZone) => {
+                            const options = { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' };
+                            const formatter = new Intl.DateTimeFormat('en-US', options);
+                            const [{ value: m }, , { value: d }, , { value: y }] = formatter.formatToParts(new Date());
+                            return `${y}-${m}-${d}`;
+                        };
+                        
+                        const todayStr = getLocalDateStr(tz);
+                        
+                        // Check if we already processed streak for today to avoid multiple increments
+                        const alreadyLogged = await NotificationLog.findOne({
+                            userId,
+                            type: 'streak_alert',
+                            date: todayStr
+                        });
+                        
+                        if (!alreadyLogged) {
+                            // Find all unique dates of expenses for this user
+                            const allExpenses = await Transaction.find({ userId, type: 'expense' }).select('date').sort({ date: -1 });
+                            
+                            // Map to local date strings in user's timezone
+                            const uniqueDays = Array.from(new Set(allExpenses.map(e => getLocalDateStr(tz))));
+                            
+                            // Calculate streak
+                            let streak = 0;
+                            let checkDate = new Date();
+                            
+                            for (let i = 0; i < 365; i++) {
+                                const checkDateStr = getLocalDateStr(tz);
+                                if (uniqueDays.includes(checkDateStr)) {
+                                    streak++;
+                                    // Move to previous day
+                                    checkDate.setDate(checkDate.getDate() - 1);
+                                } else {
+                                    break;
+                                }
+                            }
+                            
+                            // Log today's streak process
+                            await NotificationLog.create({
+                                userId,
+                                type: 'streak_alert',
+                                date: todayStr,
+                                result: { sent: 0, failed: 0 }
+                            });
+                            
+                            // Send celebration push on milestone days (3, 7, 14, 30)
+                            const milestones = [3, 7, 14, 30];
+                            if (milestones.includes(streak)) {
+                                await notifyStreak(userId, streak);
+                            }
+                        }
+                    }
+                } catch (streakErr) {
+                    logger.warn('Streak notification check failed (non-fatal):', streakErr.message);
+                }
+            })();
+        }
+
         // ── FCM: Large-expense alert (> 500 in any currency) ──────────────
         if (type === 'expense' && amount >= 500) {
             notifyLargeExpense(userId, roundToTwo(amount), 'EGP', category).catch(() => {});

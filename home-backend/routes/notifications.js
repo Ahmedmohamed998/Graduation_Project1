@@ -8,6 +8,7 @@ const {
   getMyDevices,
   sendNotification,
   testNotification,
+  triggerDailyReminder,
 } = require('../controllers/notificationController');
 
 // All routes require authentication
@@ -45,5 +46,11 @@ router.post('/send', sendNotification);
  * @desc   Send a test push to the authenticated user's devices
  */
 router.post('/test', testNotification);
+
+/**
+ * @route  POST /api/notifications/trigger-daily-reminder
+ * @desc   Manually triggers the daily expense reminder scanner
+ */
+router.post('/trigger-daily-reminder', triggerDailyReminder);
 
 module.exports = router;
