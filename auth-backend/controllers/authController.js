@@ -155,7 +155,7 @@ exports.signupWithPhone = async (req, res) => {
 
     const newUser = await User.create({
       username,
-      email: email || null,
+      email: email || undefined,
       phone,
       password: hashedPassword
     });
@@ -374,7 +374,7 @@ exports.signup = async (req, res) => {
     const newUser = await User.create({
       username,
       email,
-      phone: phone || "",
+      phone: phone || undefined,
       password: hashedPassword,
       emailVerified: false,
       emailVerificationToken: verificationToken,
@@ -475,7 +475,6 @@ exports.googleLogin = async (req, res) => {
       user = await User.create({
         username: name || email.split("@")[0],
         email,
-        phone: "",
         password: "",
         googleId
       });
