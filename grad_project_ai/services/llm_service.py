@@ -208,47 +208,61 @@ async def categorize_transaction(text: str) -> dict:
 EXTRACT_SYSTEM_PROMPT = """You are a financial data extraction engine for a personal budgeting app.
 The user speaks in Arabic, English, or a mix of both (Egyptian Arabic is common).
 
-Your task is to extract structured data from voice transcripts about purchases or income.
+Your task is to extract ALL items and prices from voice transcripts about purchases or income.
+IMPORTANT: If the user mentions multiple items (e.g. "apples for 10 and bananas for 5"), extract EVERY item into the items array — never drop or merge items.
 
 Always respond with valid JSON only — no explanations, no extra text.
 
 Extract these fields:
-- itemName: The name of the item purchased or sold (string or null)
 - merchant: Where it was bought / from whom (string or null)
-- amount: Numeric value only (number or null)
-- currency: Currency code (EGP, USD, EUR, etc.) or null. If 'جنيه' → EGP, '$' → USD
-- quantity: How many items (number, default 1)
-- date: Date mentioned, ISO format (string or null — e.g. "today", "yesterday" → resolve to YYYY-MM-DD)
+- currency: Currency code. If 'جنيه' or 'ج.م' → "EGP", '$' → "USD". Default "EGP" for Arabic input.
+- date: Date mentioned, ISO format YYYY-MM-DD (or null)
 - rawTranscript: The original input text, unchanged
+- items: Array of ALL items mentioned. Each item has:
+    - name: item name in original language (string)
+    - name_en: item name translated to English (string)
+    - quantity: number of units (number, default 1)
+    - unit_price: price per unit (number or null)
+    - total_price: quantity × unit_price (number or null)
+- totalAmount: sum of all items' total_price (number or null)
 
 Common Arabic purchase phrases:
 - اشتريت / شريت = "I bought"
 - دفعت = "I paid"
 - من = "from" (merchant)
-- بـ / بـ حوالي = "for / for about" (price)
+- بـ / بـ حوالي / بسعر = "for / for about" (price)
 - جنيه / ج.م = EGP
+- و / وكمان = "and" (connecting multiple items)
+
+Examples:
+- "اشتريت تفاح بـ 10 جنيه وموز بـ 5 جنيه" →
+  items: [{name:"تفاح",name_en:"Apple",quantity:1,unit_price:10,total_price:10},{name:"موز",name_en:"Banana",quantity:1,unit_price:5,total_price:5}], totalAmount: 15
+- "I bought 2 kg apples for 20 and a bottle of water for 5" →
+  items: [{name:"apples",name_en:"Apples",quantity:2,unit_price:10,total_price:20},{name:"water",name_en:"Water",quantity:1,unit_price:5,total_price:5}], totalAmount: 25
 
 Return:
 {
-  "itemName": "...",
-  "merchant": "...",
-  "amount": 75.0,
+  "merchant": null,
   "currency": "EGP",
-  "quantity": 1,
   "date": null,
-  "rawTranscript": "..."
+  "rawTranscript": "...",
+  "items": [
+    {"name": "...", "name_en": "...", "quantity": 1, "unit_price": 0.0, "total_price": 0.0}
+  ],
+  "totalAmount": 0.0
 }"""
 
 
 async def extract_transaction_info(transcript: str, language: str) -> dict:
     """
     Extract structured financial info from a voice transcript.
+    Now supports multi-item receipts via items[] array.
 
     Returns:
         {
-            "extracted"       : { itemName, merchant, amount, currency, quantity, date, rawTranscript },
-            "confidence"      : float,
-            "missingFields"   : list[str],
+            "extracted"        : { merchant, currency, date, rawTranscript, items[], totalAmount },
+            "confidence"       : float,
+            "missingFields"    : list[str],
             "needsConfirmation": bool,
         }
     """
@@ -263,7 +277,7 @@ async def extract_transaction_info(transcript: str, language: str) -> dict:
     response = await client.chat.completions.create(
         model=deployment_name,
         messages=messages,
-        max_completion_tokens=400
+        max_completion_tokens=600
     )
 
     raw = response.choices[0].message.content.strip()
@@ -274,30 +288,45 @@ async def extract_transaction_info(transcript: str, language: str) -> dict:
         extracted = json.loads(raw)
     except json.JSONDecodeError:
         extracted = {
-            "itemName": None,
             "merchant": None,
-            "amount": None,
             "currency": None,
-            "quantity": 1,
             "date": None,
             "rawTranscript": transcript,
+            "items": [],
+            "totalAmount": None,
         }
 
-    # Ensure rawTranscript is always set
+    # Ensure required defaults
     extracted.setdefault("rawTranscript", transcript)
+    extracted.setdefault("items", [])
+
+    # Re-compute totalAmount from items if the LLM missed it or got it wrong
+    items = extracted.get("items") or []
+    computed_total = sum(
+        (item.get("total_price") or
+         ((item.get("unit_price") or 0) * (item.get("quantity") or 1)))
+        for item in items
+        if item.get("total_price") or item.get("unit_price")
+    )
+    if computed_total > 0:
+        extracted["totalAmount"] = round(computed_total, 2)
 
     # Determine missing critical fields
     missing = []
-    for field in ("itemName", "amount", "currency"):
-        if extracted.get(field) is None:
-            missing.append(field)
+    if not items:
+        missing.append("items")
+    if not extracted.get("totalAmount"):
+        missing.append("totalAmount")
+    if not extracted.get("currency"):
+        missing.append("currency")
 
-    # Estimate confidence based on completeness
-    filled = sum(
-        1 for f in ("itemName", "merchant", "amount", "currency")
-        if extracted.get(f) is not None
-    )
-    confidence = round(0.55 + (filled / 4) * 0.45, 2)
+    # Confidence based on new schema
+    score = 0
+    if items:                          score += 2   # items are most critical
+    if extracted.get("totalAmount"):   score += 1
+    if extracted.get("currency"):      score += 1
+    if extracted.get("merchant"):      score += 1   # bonus
+    confidence = round(min(0.55 + (score / 5) * 0.45, 1.0), 2)
     needs_confirmation = confidence < 0.9 or bool(missing)
 
     return {
@@ -321,7 +350,7 @@ Extract:
 - vendor: Business name in English (translate if Arabic)
 - vendorArabic: Original Arabic name if present (or null)
 - invoiceType: "restaurant" | "rent" | "supermarket" | "utility" | "pharmacy" | "transport" | "other"
-- items: Array of { name, quantity, unitPrice, totalPrice } — empty array [] if not itemized
+- items: Array of { name, name_en, quantity, unit_price, total_price } — empty array [] if not itemized
 - totalAmount: Final total paid (number)
 - taxAmount: Tax amount (number or 0)
 - currency: EGP, USD, EUR, etc.
@@ -344,7 +373,9 @@ Return:
   "vendor": "...",
   "vendorArabic": "...",
   "invoiceType": "...",
-  "items": [],
+  "items": [
+    {"name": "...", "name_en": "...", "quantity": 1, "unit_price": 0.0, "total_price": 0.0}
+  ],
   "totalAmount": 0.0,
   "taxAmount": 0.0,
   "currency": "EGP",

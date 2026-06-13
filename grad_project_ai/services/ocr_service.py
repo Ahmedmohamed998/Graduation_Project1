@@ -226,11 +226,21 @@ def _parse_receipt_fields(fields: dict) -> dict:
     if items_field and hasattr(items_field, "value"):
         for item in (items_field.value or []):
             item_fields = getattr(item, "value", {}) or {}
+            qty = _field_val(item_fields, "Quantity") or 1
+            unit_p = _field_val(item_fields, "Price")
+            total_p = _field_val(item_fields, "TotalPrice")
+            # Compute total_price if missing
+            if total_p is None and unit_p is not None:
+                try:
+                    total_p = round(float(unit_p) * float(qty), 2)
+                except (TypeError, ValueError):
+                    total_p = None
             items.append({
-                "name"       : _field_val(item_fields, "Description"),
-                "quantity"   : _field_val(item_fields, "Quantity") or 1,
-                "unitPrice"  : _field_val(item_fields, "Price"),
-                "totalPrice" : _field_val(item_fields, "TotalPrice"),
+                "name"        : _field_val(item_fields, "Description"),
+                "name_en"     : _field_val(item_fields, "Description"),  # Azure returns English for en receipts
+                "quantity"    : qty,
+                "unit_price"  : unit_p,
+                "total_price" : total_p,
             })
 
     return {

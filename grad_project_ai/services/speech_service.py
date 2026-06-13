@@ -130,6 +130,7 @@ async def transcribe_audio(
 
     start_time = time.time()
     last_error  = None
+    used_fallback = False  # Track if we fell through from ar-EG to en-US
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         for locale in candidates:
@@ -168,15 +169,25 @@ async def transcribe_audio(
                 lang_code = "ar" if locale.startswith("ar") else "en"
                 duration  = round(time.time() - start_time, 2)
 
-                return {
+                result = {
                     "transcript":       transcript,
                     "language":         lang_code,
                     "confidence":       confidence,
                     "duration_seconds": duration,
                 }
+                # Warn caller if we silently fell back from Arabic to English
+                if used_fallback:
+                    result["languageFallback"] = (
+                        "Audio did not match Arabic (ar-EG). "
+                        "Transcribed as English (en-US) instead. "
+                        "Accuracy may be reduced for Arabic speech."
+                    )
+                return result
 
             elif status == "NoMatch":
                 # No speech detected in this locale — try next candidate
+                if locale == "ar-EG" and "en-US" in candidates:
+                    used_fallback = True  # Next attempt will be the English fallback
                 continue
 
             elif status == "InitialSilenceTimeout":

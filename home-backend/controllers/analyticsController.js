@@ -1,25 +1,28 @@
 /**
  * controllers/analyticsController.js
  *
- * Implements 6 analytics endpoints:
+ * Implements 7 analytics endpoints:
  *   GET  /api/analytics/overview          – income/expense/savings summary
  *   GET  /api/analytics/categories        – spending by category breakdown
  *   GET  /api/analytics/trends            – monthly income-expense-savings trend
  *   GET  /api/analytics/daily-spending    – per-day totals for calendar heatmap
  *   GET  /api/analytics/budget-alerts     – budget overrun predictions
  *   GET  /api/analytics/entry-methods     – manual vs voice vs OCR usage
+ *   GET  /api/analytics/savings-overview  – savings goals + debt summary
  */
 
 'use strict';
 
-const mongoose       = require('mongoose');
-const Transaction    = require('../models/Transaction');
-const Budget         = require('../models/Budget');
-const SavingsGoal    = require('../models/SavingsGoal');
-const Debt           = require('../models/Debt');
-const VoiceFeedback  = require('../models/VoiceFeedback');
-const OcrFeedback    = require('../models/OcrFeedback');
-const logger         = require('../utils/logger');
+const mongoose          = require('mongoose');
+const Transaction       = require('../models/Transaction');
+const Budget            = require('../models/Budget');
+const SavingsGoal       = require('../models/SavingsGoal');
+const GoalTransaction   = require('../models/GoalTransaction');
+const Account           = require('../models/Account');
+const Debt              = require('../models/Debt');
+const VoiceFeedback     = require('../models/VoiceFeedback');
+const OcrFeedback       = require('../models/OcrFeedback');
+const logger            = require('../utils/logger');
 const {
     getDateRange,
     getPeriodKey,
@@ -56,7 +59,7 @@ const getOverview = async (req, res, next) => {
         const { startDate, endDate } = getDateRange(period);
 
         // ── Transactions in period ────────────────────────────────────────────
-        const [incAgg, expAgg, txCount] = await Promise.all([
+        const [incAgg, expAgg, txCount, account] = await Promise.all([
             Transaction.aggregate([
                 { $match: { userId, type: 'income', date: { $gte: startDate, $lte: endDate } } },
                 { $group: { _id: null, total: { $sum: '$amount' } } }
@@ -65,13 +68,18 @@ const getOverview = async (req, res, next) => {
                 { $match: { userId, type: 'expense', date: { $gte: startDate, $lte: endDate } } },
                 { $group: { _id: null, total: { $sum: '$amount' } } }
             ]),
-            Transaction.countDocuments({ userId, date: { $gte: startDate, $lte: endDate } })
+            Transaction.countDocuments({ userId, date: { $gte: startDate, $lte: endDate } }),
+            Account.findOne({ userId })
         ]);
 
         const totalIncome  = round2(incAgg[0]?.total || 0);
         const totalExpense = round2(expAgg[0]?.total || 0);
+        // netCashFlow = income - expenses (does NOT include goal allocations)
         const netSavings   = round2(totalIncome - totalExpense);
         const savingsRate  = calcSavingsRate(totalIncome, totalExpense);
+        // allocatedSavings = money currently locked in savings goals
+        const allocatedSavings = round2(account?.allocatedSavings || 0);
+        const availableBalance = round2(account ? Math.max(0, account.totalBalance - account.allocatedSavings) : 0);
 
         // ── Top 5 expense categories ──────────────────────────────────────────
         const catAgg = await Transaction.aggregate([
@@ -110,21 +118,37 @@ const getOverview = async (req, res, next) => {
             summary: {
                 totalIncome,
                 totalExpense,
+                /**
+                 * netCashFlow = income - expenses for the period.
+                 * This is NOT the same as allocatedSavings — savings
+                 * contributions don't appear here because they are not
+                 * recorded as expense transactions.
+                 */
+                netCashFlow:       netSavings,
+                // Keep old field name for backward-compat
                 netSavings,
                 savingsRate,
-                transactionCount: txCount,
-                budgetHealthScore
+                transactionCount:  txCount,
+                budgetHealthScore,
+                /**
+                 * allocatedSavings — total money currently locked in goals.
+                 * This is the real "total saved" number for the user.
+                 */
+                allocatedSavings,
+                availableBalance
             },
             topCategories,
             budgetSummary,
             // Chart 1 — Cash Flow Card data (ready to render)
             cashFlowCard: {
-                label:   netSavings >= 0 ? 'Net Savings' : 'Deficit',
-                amount:  netSavings,
-                sign:    netSavings >= 0 ? 'positive' : 'negative',
-                income:  totalIncome,
-                expense: totalExpense,
-                savingsRate
+                label:            netSavings >= 0 ? 'Net Cash Flow' : 'Deficit',
+                amount:           netSavings,
+                sign:             netSavings >= 0 ? 'positive' : 'negative',
+                income:           totalIncome,
+                expense:          totalExpense,
+                savingsRate,
+                allocatedSavings,
+                availableBalance
             }
         });
     } catch (error) {
@@ -480,64 +504,108 @@ const getSavingsOverview = async (req, res, next) => {
         const userId = toObjectId(req.userId);
         const now    = new Date();
 
-        const [goals, debts] = await Promise.all([
+        const [goals, debts, account] = await Promise.all([
             SavingsGoal.find({ userId }),
-            Debt.find({ userId, status: { $ne: 'paid' } })
+            Debt.find({ userId, status: { $ne: 'paid' } }),
+            Account.findOne({ userId })
         ]);
 
-        // Build goals with probability estimate
-        const goalsWithStatus = goals.map(g => {
+        // Build goals with REAL contribution history for accurate probability estimates
+        const goalsWithStatus = await Promise.all(goals.map(async (g) => {
             const progress = g.targetAmount > 0
                 ? round2((g.savedAmount / g.targetAmount) * 100)
                 : 0;
-            const probability = estimateGoalProbability(g);
-            const remaining   = round2(g.targetAmount - g.savedAmount);
-            let goalStatus    = 'on-track';
-            if (g.isCompleted)       goalStatus = 'completed';
-            else if (probability < 0.30) goalStatus = 'behind';
-            else if (probability < 0.70) goalStatus = 'at-risk';
+
+            // Fetch monthly contribution totals for this goal (last 6 months)
+            const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+            const monthlyContribAgg = await GoalTransaction.aggregate([
+                {
+                    $match: {
+                        goalId: g._id,
+                        type:   'contribution',
+                        createdAt: { $gte: sixMonthsAgo }
+                    }
+                },
+                {
+                    $group: {
+                        _id: {
+                            y: { $year: '$createdAt' },
+                            m: { $month: '$createdAt' }
+                        },
+                        total: { $sum: '$amount' }
+                    }
+                }
+            ]);
+            const monthlyContributions = monthlyContribAgg.map(r => r.total);
+
+            const probability = estimateGoalProbability(g, monthlyContributions);
+            const remaining   = round2(Math.max(0, g.targetAmount - g.savedAmount));
+
+            let goalStatus = 'on-track';
+            if (g.status === 'completed')    goalStatus = 'completed';
+            else if (g.status === 'cancelled') goalStatus = 'cancelled';
+            else if (probability < 0.30)     goalStatus = 'behind';
+            else if (probability < 0.70)     goalStatus = 'at-risk';
 
             return {
                 id:           g._id,
                 name:         g.name,
                 icon:         g.icon,
+                status:       g.status,
+                isCompleted:  g.isCompleted,   // backward-compat virtual
                 targetAmount: round2(g.targetAmount),
                 savedAmount:  round2(g.savedAmount),
                 remaining,
                 progress,
                 deadline:     g.deadline,
-                isCompleted:  g.isCompleted,
+                completedAt:  g.completedAt,
                 probability:  round2(probability),
-                status:       goalStatus,
+                goalStatus,
                 // Chart 5 — circle progress data
-                circleChart:  { value: progress, color: progress >= 50 ? '#10b981' : progress >= 20 ? '#f59e0b' : '#ef4444' }
+                circleChart: {
+                    value: progress,
+                    color: progress >= 100 ? '#6366f1'
+                         : progress >= 50  ? '#10b981'
+                         : progress >= 20  ? '#f59e0b'
+                         : '#ef4444'
+                }
             };
-        });
+        }));
 
         // Debt summary
         const totalDebt = debts.reduce((s, d) => s + (d.totalAmount - d.paidAmount), 0);
         const debtSummary = debts.map(d => ({
-            id:              d._id,
-            creditor:        d.creditorName,
-            remaining:       round2(d.totalAmount - d.paidAmount),
-            total:           round2(d.totalAmount),
-            paidPct:         round2((d.paidAmount / d.totalAmount) * 100),
-            interestRate:    d.interestRate,
-            dueDate:         d.dueDate,
-            status:          d.status
+            id:           d._id,
+            creditor:     d.creditorName,
+            remaining:    round2(d.totalAmount - d.paidAmount),
+            total:        round2(d.totalAmount),
+            paidPct:      round2((d.paidAmount / d.totalAmount) * 100),
+            interestRate: d.interestRate,
+            dueDate:      d.dueDate,
+            status:       d.status
         }));
 
+        const totalAllocated = round2(account?.allocatedSavings || 0);
+
         res.status(200).json({
+            // Balance context
+            balanceContext: {
+                totalBalance:     round2(account?.totalBalance || 0),
+                availableBalance: round2(Math.max(0, (account?.totalBalance || 0) - (account?.allocatedSavings || 0))),
+                allocatedSavings: totalAllocated
+            },
             goals: {
-                total:      goals.length,
-                completed:  goals.filter(g => g.isCompleted).length,
-                active:     goals.filter(g => !g.isCompleted).length,
-                items:      goalsWithStatus
+                total:     goals.length,
+                completed: goals.filter(g => g.status === 'completed').length,
+                active:    goals.filter(g => g.status === 'active').length,
+                cancelled: goals.filter(g => g.status === 'cancelled').length,
+                totalSaved: totalAllocated,
+                items:     goalsWithStatus
             },
             debts: {
-                total:       debts.length,
-                totalOwed:   round2(totalDebt),
-                items:       debtSummary
+                total:     debts.length,
+                totalOwed: round2(totalDebt),
+                items:     debtSummary
             }
         });
     } catch (error) {

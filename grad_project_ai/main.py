@@ -6,7 +6,10 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from dotenv import load_dotenv
 from typing import Optional
+from contextlib import asynccontextmanager
 import json
+import logging
+import os
 
 from services.backend_service import build_user_context
 from services.llm_service import (
@@ -21,28 +24,45 @@ from services.memory_service import _ensure_indexes
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────
+#  Lifespan: runs startup/shutdown logic
+# ─────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup: create MongoDB indexes.  Shutdown: nothing needed."""
+    try:
+        await _ensure_indexes()
+    except Exception as e:
+        logger.warning(f"[startup] Could not create chat memory indexes: {e}")
+    yield  # app runs here
+
+
 limiter = Limiter(key_func=get_remote_address)
-app = FastAPI(title="AI Financial Advisor Agent")
+app = FastAPI(title="AI Financial Advisor Agent", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# CORS — '*' wildcard is incompatible with allow_credentials=True.
+# List explicit origins instead.
+_ALLOWED_ORIGINS = [
+    os.getenv("HOME_BACKEND_URL", "http://home-backend:5001"),
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:5173",   # Vite dev server
+    "http://localhost:8000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-@app.on_event("startup")
-async def on_startup():
-    """Create MongoDB indexes for chat memory on service start."""
-    try:
-        await _ensure_indexes()
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"[startup] Could not create chat memory indexes: {e}")
 
 
 # ─────────────────────────────────────────────
@@ -176,12 +196,21 @@ async def voice_extract(request: Request, body: VoiceExtractRequest):
     # Internally call categorize to enrich the response
     try:
         ext = extraction["extracted"]
+        items = ext.get("items") or []
+        # Build cat_text from all item names (English) + total amount + currency
+        item_names = ", ".join(
+            item.get("name_en") or item.get("name", "")
+            for item in items
+            if item.get("name_en") or item.get("name")
+        )
+        total = ext.get("totalAmount")
+        currency = ext.get("currency", "")
+        merchant = ext.get("merchant", "")
         cat_text = " ".join(filter(None, [
-            ext.get("itemName"),
-            "from" if ext.get("merchant") else None,
-            ext.get("merchant"),
-            str(ext.get("amount", "")) if ext.get("amount") else None,
-            ext.get("currency"),
+            item_names or None,
+            f"from {merchant}" if merchant else None,
+            str(total) if total else None,
+            currency,
         ]))
         category = await categorize_transaction(cat_text or body.transcript)
     except Exception:
