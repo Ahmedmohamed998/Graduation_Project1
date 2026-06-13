@@ -105,7 +105,11 @@ async def _read_image(
         result["language"] = lang
         return result
     except Exception as azure_err:
-        pass  # fall through to pytesseract
+        import logging
+        logging.getLogger(__name__).warning(
+            "Azure Document Intelligence failed, falling back to pytesseract: %s", azure_err
+        )
+        # fall through to pytesseract
 
     # Pytesseract fallback
     try:
@@ -172,7 +176,7 @@ def _azure_doc_intel_sync(
 
     poller = client.begin_analyze_document(
         model_id,
-        analyze_request=file_bytes,
+        body=io.BytesIO(file_bytes),
         content_type="application/octet-stream",
     )
     analyze_result = poller.result()
