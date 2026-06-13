@@ -40,8 +40,8 @@ router.post("/sms/verify", smsController.verifyCode);
 router.post("/signup", authController.signup);
 router.post("/login", loginLimiter, authController.login);
 router.post("/signup-phone", authController.signupWithPhone);
-router.post('/verify-email', authController.verifyEmail);
-
+router.post('/verify-email', authController.verifyEmail); // API for JSON
+router.get('/verify-email', authController.verifyEmailHTML); // Browser endpoint for HTML
 // Google Auth - Use the controller that creates users and returns tokens
 router.post("/google-signin", authController.googleLogin);
 

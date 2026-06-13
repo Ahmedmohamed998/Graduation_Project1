@@ -382,13 +382,16 @@ exports.signup = async (req, res) => {
     });
 
     // Send verification email
-    const verificationLink = `${process.env.APP_FRONTEND_URL || 'https://yourapp.com'}/verify-email?token=${verificationToken}`;
+    // Use the API route directly to handle the GET request and render the HTML page
+    const baseUrl = process.env.BACKEND_URL || 'https://hasibha.online';
+    const verificationLink = `${baseUrl}/api/auth/verify-email?token=${verificationToken}`;
     const emailText = `Hello ${username},\n\nPlease verify your account using this link: ${verificationLink}`;
     const emailHtml = `
-      <div>
-        <h2>Welcome to our App!</h2>
+      <div style="font-family: Arial, sans-serif; text-align: center; color: #333;">
+        <h2 style="color: #4CAF50;">Welcome to Hasibha!</h2>
         <p>Please click the button below to verify your email address:</p>
-        <a href="${verificationLink}" style="padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; display: inline-block;">Verify Email</a>
+        <a href="${verificationLink}" style="padding: 12px 24px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; display: inline-block; margin-top: 10px; font-weight: bold;">Verify Email</a>
+        <p style="margin-top: 20px; font-size: 12px; color: #777;">If the button doesn't work, copy and paste this link into your browser:<br>${verificationLink}</p>
       </div>
     `;
 
@@ -865,7 +868,7 @@ exports.resetRateLimit = async (req, res) => {
 };
 
 
-// Email Verification Function
+// Email Verification Function (JSON)
 async function verifyEmail(req, res) {
   const { token } = req.body;
   const user = await User.findOne({
@@ -883,8 +886,126 @@ async function verifyEmail(req, res) {
   res.json({ message: "Email verified successfully" });
 }
 
+// Email Verification Function (HTML Page Redirect)
+async function verifyEmailHTML(req, res) {
+  const { token } = req.query;
+  
+  if (!token) {
+    return res.send(renderVerificationPage(false, "No verification token provided."));
+  }
+
+  try {
+    const user = await User.findOne({
+      emailVerificationToken: token,
+      emailVerificationExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.send(renderVerificationPage(false, "Invalid or expired verification link. Please request a new one."));
+    }
+
+    user.emailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save();
+
+    return res.send(renderVerificationPage(true, "Your email has been verified successfully!"));
+  } catch (err) {
+    console.error("HTML Email verification error:", err);
+    return res.send(renderVerificationPage(false, "An error occurred during verification. Please try again later."));
+  }
+}
+
+// Helper to render the HTML page
+function renderVerificationPage(success, message) {
+  const bgColor = "#ffffff";
+  const primaryColor = "#4CAF50"; // Hasibha Green
+  const textColor = "#333333";
+  const icon = success ? "✅" : "❌";
+  const title = success ? "Verified!" : "Verification Failed";
+  const buttonColor = success ? primaryColor : "#d32f2f";
+  
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Hasibha - Email Verification</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background-color: #f9f9f9;
+          color: ${textColor};
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+          margin: 0;
+        }
+        .container {
+          background-color: ${bgColor};
+          padding: 40px;
+          border-radius: 12px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+          text-align: center;
+          max-width: 400px;
+          width: 90%;
+          border-top: 6px solid ${buttonColor};
+        }
+        .logo {
+          font-size: 28px;
+          font-weight: bold;
+          color: ${primaryColor};
+          margin-bottom: 20px;
+        }
+        .icon {
+          font-size: 64px;
+          margin-bottom: 10px;
+        }
+        h1 {
+          margin: 10px 0;
+          font-size: 24px;
+        }
+        p {
+          font-size: 16px;
+          color: #666;
+          margin-bottom: 30px;
+          line-height: 1.5;
+        }
+        .btn {
+          display: inline-block;
+          background-color: ${primaryColor};
+          color: #ffffff;
+          text-decoration: none;
+          padding: 12px 24px;
+          border-radius: 6px;
+          font-weight: bold;
+          transition: background-color 0.3s;
+        }
+        .btn:hover {
+          background-color: #388E3C;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="logo">Hasibha</div>
+        <div class="icon">${icon}</div>
+        <h1>${title}</h1>
+        <p>${message}</p>
+        <a href="https://hasibha.online" class="btn">Go to App</a>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+
 module.exports = {
   ...exports,
+  verifyEmail,
+  verifyEmailHTML,
   register: exports.signup,
   sendEmailVerification: async (req, res) => { 
     try {
@@ -900,26 +1021,31 @@ module.exports = {
         return res.status(400).json({ success: false, message: "Email is already verified." });
       }
 
-      // Generate new token if expired or missing
-      if (!user.emailVerificationToken || user.emailVerificationExpires < Date.now()) {
-        user.emailVerificationToken = crypto.randomBytes(32).toString("hex");
-        user.emailVerificationExpires = Date.now() + 3600000;
-        await user.save();
-      }
+      const verificationToken = crypto.randomBytes(32).toString("hex");
+      user.emailVerificationToken = verificationToken;
+      user.emailVerificationExpires = Date.now() + 3600000;
+      await user.save();
 
-      const verificationLink = `${process.env.APP_FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000'}/verify-email?token=${user.emailVerificationToken}`;
+      const baseUrl = process.env.BACKEND_URL || 'https://hasibha.online';
+      const verificationLink = `${baseUrl}/api/auth/verify-email?token=${verificationToken}`;
       await sendEmail(
         email, 
         "Verify Your Email Address", 
-        `Verify here: ${verificationLink}`, 
-        `<p>Please verify your email: <a href="${verificationLink}">${verificationLink}</a></p>`
+        `Hello ${user.username},\n\nPlease verify your account using this link: ${verificationLink}`,
+        `
+          <div style="font-family: Arial, sans-serif; text-align: center; color: #333;">
+            <h2 style="color: #4CAF50;">Welcome to Hasibha!</h2>
+            <p>Please click the button below to verify your email address:</p>
+            <a href="${verificationLink}" style="padding: 12px 24px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; display: inline-block; margin-top: 10px; font-weight: bold;">Verify Email</a>
+            <p style="margin-top: 20px; font-size: 12px; color: #777;">If the button doesn't work, copy and paste this link into your browser:<br>${verificationLink}</p>
+          </div>
+        `
       );
 
       res.status(200).json({ success: true, message: "Verification email sent." });
     } catch (err) {
-      console.error("Resend verification error:", err);
+      console.error(err);
       res.status(500).json({ success: false, message: "Server error." });
     }
-  },
-  verifyEmail,
+  }
 };

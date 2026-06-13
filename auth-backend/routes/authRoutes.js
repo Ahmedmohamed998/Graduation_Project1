@@ -27,7 +27,7 @@ router.post("/register", authController.register);
 
 // Email Verification (Public route)
 router.post("/verify-email", authController.verifyEmail);
-
+router.get("/verify-email", authController.verifyEmailHTML);
 // ====================== PROTECTED ROUTES (JWT + Email Verified) ======================
 
 // Apply both middlewares to all protected routes
