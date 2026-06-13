@@ -2,6 +2,8 @@ import os
 import io
 import time
 import asyncio
+import subprocess
+import tempfile
 import httpx
 from pathlib import Path
 
@@ -22,6 +24,53 @@ _CONTENT_TYPE_MAP = {
     ".ogg":  "audio/ogg; codecs=opus",
     ".m4a":  "audio/mp4",
 }
+
+
+def _to_wav_pcm(audio_bytes: bytes, src_ext: str) -> bytes:
+    """
+    Convert any audio format to WAV PCM 16kHz mono using ffmpeg.
+    Azure STT reliably transcribes this format.
+    Returns original bytes if ffmpeg is not available.
+    """
+    if src_ext == ".wav":
+        return audio_bytes  # already WAV, skip conversion
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=src_ext, delete=False) as src_f:
+            src_f.write(audio_bytes)
+            src_path = src_f.name
+
+        dst_path = src_path + "_converted.wav"
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", src_path,
+                "-ar", "16000",   # 16kHz sample rate
+                "-ac", "1",       # mono
+                "-c:a", "pcm_s16le",  # 16-bit PCM
+                dst_path,
+            ],
+            capture_output=True,
+            timeout=60,
+        )
+
+        if result.returncode == 0:
+            with open(dst_path, "rb") as f:
+                return f.read()
+        else:
+            # ffmpeg failed — return original and let Azure try
+            return audio_bytes
+
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        # ffmpeg not installed — return original bytes
+        return audio_bytes
+    finally:
+        for p in [src_path, dst_path]:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 def _detect_format(filename: str) -> str:
@@ -66,7 +115,9 @@ async def transcribe_audio(
     if not speech_key or not speech_region:
         raise RuntimeError("AZURE_SPEECH_KEY and AZURE_SPEECH_REGION must be set in .env")
 
-    content_type = _CONTENT_TYPE_MAP.get(ext, "audio/wav")
+    # Normalize to WAV PCM 16kHz mono for reliable Azure transcription
+    wav_bytes    = _to_wav_pcm(audio_bytes, ext)
+    content_type = "audio/wav"  # always WAV after conversion
 
     # Which languages to attempt (in order)
     if language_hint == "ar":
@@ -94,7 +145,7 @@ async def transcribe_audio(
 
             try:
                 resp = await client.post(
-                    url, params=params, headers=headers, content=audio_bytes
+                    url, params=params, headers=headers, content=wav_bytes
                 )
                 resp.raise_for_status()
                 data = resp.json()
