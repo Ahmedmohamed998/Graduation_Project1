@@ -12,9 +12,13 @@ const getProfile = async (req, res, next) => {
         let profile = await UserProfile.findOne({ userId });
 
         if (!profile) {
+            const User = require('../models/User');
+            const user = await User.findById(userId);
+            const username = user && user.username ? user.username : 'User';
+
             profile = await UserProfile.create({
                 userId,
-                displayName: 'User',
+                displayName: username,
                 profilePhoto: ''
             });
         }

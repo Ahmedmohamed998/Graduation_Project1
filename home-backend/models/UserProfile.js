@@ -84,4 +84,19 @@ const userProfileSchema = new mongoose.Schema({
     timestamps: true
 });
 
+userProfileSchema.pre('save', async function(next) {
+    if (this.isNew && (!this.displayName || this.displayName === 'User')) {
+        try {
+            const User = require('./User');
+            const user = await User.findById(this.userId);
+            if (user && user.username) {
+                this.displayName = user.username;
+            }
+        } catch (err) {
+            console.error("Error fetching username for new profile:", err);
+        }
+    }
+    next();
+});
+
 module.exports = mongoose.model('UserProfile', userProfileSchema);
