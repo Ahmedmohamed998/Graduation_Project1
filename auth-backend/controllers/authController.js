@@ -1,719 +1,3 @@
-// const User = require("../models/User");
-// const bcrypt = require("bcryptjs");
-// const jwt = require("jsonwebtoken");
-// const { OAuth2Client } = require("google-auth-library");
-
-
-// exports.login = async (req, res) => {
-//   try {
-//     const { email, password } = req.body;
-
-//     // Validate input
-//     if (!email || !password) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Email and password are required."
-//       });
-//     }
-
-//     // Find user
-//     const user = await User.findOne({ email });
-//     if (!user) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "No user found with this email."
-//       });
-//     }
-
-//     // Compare password
-//     const isMatch = await bcrypt.compare(password, user.password);
-//     if (!isMatch) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Incorrect password."
-//       });
-//     }
-
-//     // Generate JWT
-//     const token = jwt.sign(
-//       { id: user._id },
-//       process.env.JWT_SECRET,
-//       { expiresIn: "7d" }
-//     );
-
-//     return res.json({
-//       success: true,
-//       message: "Login successful.",
-//       token,
-//       user: {
-//         id: user._id,
-//         email: user.email,
-//         username: user.username
-//       }
-//     });
-
-//   } catch (err) {
-//     return res.status(500).json({
-//       success: false,
-//       message: "Server error.",
-//       error: err.message
-//     });
-//   }
-// };
-
-
-
-
-
-// // ------------ SIGN UP ------------
-// exports.signup = async (req, res) => {
-//   try {
-//     const { username, email, phone, password, confirmPassword } = req.body;
-
-//     // Required fields validation
-//     if (!username || !email || !phone || !password || !confirmPassword) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "All fields are required."
-//       });
-//     }
-
-//     // Password match check
-//     if (password !== confirmPassword) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Passwords do not match."
-//       });
-//     }
-
-//     // Password minimum length validation
-//     if (password.length < 6) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Password must be at least 6 characters."
-//       });
-//     }
-
-//     // Check if email already exists
-//     const emailExists = await User.findOne({ email });
-//     if (emailExists) {
-//       return res.status(409).json({
-//         success: false,
-//         message: "Email already registered."
-//       });
-//     }
-
-//     // Check if phone already exists
-//     const phoneExists = await User.findOne({ phone });
-//     if (phoneExists) {
-//       return res.status(409).json({
-//         success: false,
-//         message: "Phone number already in use."
-//       });
-//     }
-
-//     // Hash password
-//     const hashedPassword = await bcrypt.hash(password, 10);
-
-//     // Create user
-//     const newUser = await User.create({
-//       username,
-//       email,
-//       phone,
-//       password: hashedPassword
-//     });
-
-//     // Generate JWT
-//     const token = jwt.sign(
-//       { id: newUser._id },
-//       process.env.JWT_SECRET,
-//       { expiresIn: "7d" }
-//     );
-
-//     return res.status(201).json({
-//       success: true,
-//       message: "Account created successfully.",
-//       token,
-//       user: {
-//         id: newUser._id,
-//         username: newUser.username,
-//         email: newUser.email
-//       }
-//     });
-
-//   } catch (err) {
-//     return res.status(500).json({
-//       success: false,
-//       message: "Server error.",
-//       error: err.message
-//     });
-//   }
-// };
-
-
-
-
-
-
-
-
-// exports.forgotPassword = async (req, res) => {
-//   try {
-//     const { email } = req.body;
-
-//     if (!email) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Email is required."
-//       });
-//     }
-
-//     // Check if user exists
-//     const user = await User.findOne({ email });
-//     if (!user) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "No user found with this email."
-//       });
-//     }
-
-//     // Generate 6-digit code
-//     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-//     // Expire in 10 minutes
-//     const expiry = new Date(Date.now() + 10 * 60 * 1000);
-
-//     // Save in DB
-//     user.resetCode = resetCode;
-//     user.resetCodeExpiry = expiry;
-//     await user.save();
-
-//     // TODO: send email to user.resetCode (will add below)
-//     console.log("Reset Code:", resetCode);
-
-//     res.json({
-//       success: true,
-//       message: "Reset code sent to your email."
-//     });
-
-//   } catch (err) {
-//     res.status(500).json({
-//       success: false,
-//       message: "Server error.",
-//       error: err.message
-//     });
-//   }
-// };
-
-
-
-
-
-
-
-
-// exports.resetPassword = async (req, res) => {
-//   try {
-//     const { email, code, newPassword } = req.body;
-
-//     if (!email || !code || !newPassword) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Email, code and new password are required."
-//       });
-//     }
-
-//     // Find user
-//     const user = await User.findOne({ email });
-//     if (!user) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "User not found."
-//       });
-//     }
-
-//     // Check code
-//     if (user.resetCode !== code) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid code."
-//       });
-//     }
-
-//     // Check expiry
-//     if (user.resetCodeExpiry < new Date()) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Code expired."
-//       });
-//     }
-
-//     // Update password
-//     const hashedPassword = await bcrypt.hash(newPassword, 10);
-//     user.password = hashedPassword;
-
-//     // Clear the reset fields
-//     user.resetCode = null;
-//     user.resetCodeExpiry = null;
-
-//     await user.save();
-
-//     return res.json({
-//       success: true,
-//       message: "Password reset successful."
-//     });
-
-//   } catch (err) {
-//     res.status(500).json({
-//       success: false,
-//       message: "Server error.",
-//       error: err.message
-//     });
-//   }
-// };
-
-
-
-
-
-
-// const sendEmail = require("../utils/sendEmail");
-
-// exports.forgotPassword = async (req, res) => {
-//   try {
-//     const { email } = req.body;
-
-//     if (!email) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Email is required."
-//       });
-//     }
-
-//     const user = await User.findOne({ email });
-//     if (!user) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "No user found with this email."
-//       });
-//     }
-
-//     // Generate 6-digit code
-//     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-//     const expiry = new Date(Date.now() + 10 * 60 * 1000);
-
-//     user.resetCode = resetCode;
-//     user.resetCodeExpiry = expiry;
-//     await user.save();
-
-//     // ----- SEND EMAIL -----
-//     const emailText = `Your password reset code is: ${resetCode}\n\nIt expires in 10 minutes.`;
-
-//     const sent = await sendEmail(
-//       email,
-//       "Your Password Reset Code",
-//       emailText
-//     );
-
-//     if (!sent) {
-//       return res.status(500).json({
-//         success: false,
-//         message: "Failed to send email. Try again."
-//       });
-//     }
-
-//     return res.json({
-//       success: true,
-//       message: "A reset code has been sent to your email."
-//     });
-
-//   } catch (err) {
-//     res.status(500).json({
-//       success: false,
-//       message: "Server error.",
-//       error: err.message
-//     });
-//   }
-// };
-
-
-
-
-
-
-// // initialize client once
-// const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
-// /**
-//  * POST /api/auth/google
-//  * Body: { idToken: string }
-//  */
-// exports.googleAuth = async (req, res) => {
-//   try {
-//     const { idToken } = req.body;
-//     if (!idToken) {
-//       return res.status(400).json({ success: false, message: "idToken is required." });
-//     }
-
-//     // Verify the ID token
-//     const ticket = await googleClient.verifyIdToken({
-//       idToken,
-//       audience: process.env.GOOGLE_CLIENT_ID
-//     });
-
-//     const payload = ticket.getPayload(); // contains email, name, sub, email_verified, picture, etc.
-//     if (!payload) {
-//       return res.status(400).json({ success: false, message: "Invalid Google token." });
-//     }
-
-//     const { sub: googleId, email, name, email_verified } = payload;
-
-//     // Optional: require verified email
-//     if (!email_verified) {
-//       return res.status(403).json({ success: false, message: "Google account email not verified." });
-//     }
-
-//     // Find existing user by googleId or email
-//     let user = await User.findOne({ $or: [{ googleId }, { email }] });
-
-//     if (user) {
-//       // If user exists but has no googleId, attach it
-//       if (!user.googleId) {
-//         user.googleId = googleId;
-//         // optionally update username if empty
-//         if (!user.username && name) user.username = name;
-//         await user.save();
-//       }
-//     } else {
-//       // Create new user
-//       user = await User.create({
-//         username: name || email.split("@")[0],
-//         email,
-//         phone: "",            // optional: mobile required? set empty or ask later
-//         password: "",         // no local password (or set random hashed value)
-//         googleId
-//       });
-//     }
-
-//     // Generate JWT for your application
-//     const token = jwt.sign(
-//       { id: user._id },
-//       process.env.JWT_SECRET,
-//       { expiresIn: "7d" }
-//     );
-
-//     return res.json({
-//       success: true,
-//       message: "Google authentication successful.",
-//       token,
-//       user: {
-//         id: user._id,
-//         email: user.email,
-//         username: user.username
-//       }
-//     });
-
-//   } catch (err) {
-//     console.error("googleAuth error:", err);
-//     return res.status(500).json({ success: false, message: "Server error.", error: err.message });
-//   }
-// };
-
-
-
-
-
-
-// const verifyGoogleToken = require("../utils/verifyGoogleToken");
-
-// exports.googleLogin = async (req, res) => {
-//   try {
-//     const { idToken } = req.body;
-
-//     if (!idToken) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Google ID token is required."
-//       });
-//     }
-
-//     // Verify Google token
-//     const googleData = await verifyGoogleToken(idToken);
-
-//     if (!googleData.success) {
-//       return res.status(401).json(googleData);
-//     }
-
-//     const { email, name, googleId } = googleData;
-
-//     let user = await User.findOne({ email });
-
-//     if (!user) {
-//       // Create new user automatically
-//       user = await User.create({
-//         email,
-//         username: name,
-//         googleId,
-//         password: null
-//       });
-//     }
-
-//     // Generate JWT tokens
-//     const accessToken = generateAccessToken(user._id);
-//     const refreshToken = generateRefreshToken(user._id);
-
-//     user.refreshToken = refreshToken;
-//     await user.save();
-
-//     return res.json({
-//       success: true,
-//       message: "Google login successful",
-//       accessToken,
-//       refreshToken,
-//       user: {
-//         id: user._id,
-//         email: user.email,
-//         username: user.username
-//       }
-//     });
-
-//   } catch (err) {
-//     res.status(500).json({
-//       success: false,
-//       message: "Server error",
-//       error: err.message
-//     });
-//   }
-// };
-
-
-
-
-
-
-// const { checkEmailRateLimit } = require("../utils/emailRateLimit");
-
-// exports.sendEmailVerification = async (req, res) => {
-//   const { email } = req.body;
-//   const ip = req.ip;
-
-//   // 1 — Apply rate limiting
-//   const check = await checkEmailRateLimit(email, ip);
-
-//   if (!check.allowed) {
-//     return res.status(429).json({
-//       success: false,
-//       message: check.reason
-//     });
-//   }
-
-//   // 2 — Create verification code
-//   const code = Math.floor(100000 + Math.random() * 900000).toString();
-
-//   // 3 — Send email (connect your email provider here)
-//   console.log("Sending email verification code:", code);
-
-//   res.json({
-//     success: true,
-//     message: "Verification email sent",
-//     code // remove later (for dev only)
-//   });
-// };
-
-
-
-
-
-
-// // snippet inside login/signup success
-// const { signAccessToken } = require("../utils/token");
-// const { createRefreshToken } = require("../utils/refreshTokenUtil");
-
-// // After verifying user credentials...
-// const accessToken = signAccessToken({ id: user._id });
-// const refreshDoc = await createRefreshToken(user._id, {
-//   ip: req.ip,
-//   userAgent: req.get("User-Agent") || ""
-// });
-
-// // Option A (header/body): return refresh token in response (not recommended for long-term on mobile)
-// // Option B (recommended): set httpOnly secure cookie (mobile: use native secure store or httpOnly cookie if webview)
-// if (process.env.USE_REFRESH_COOKIE === "true") {
-//   res.cookie("refreshToken", refreshDoc.token, {
-//     httpOnly: true,
-//     secure: process.env.NODE_ENV === "production",
-//     sameSite: "strict",
-//     maxAge: refreshDoc.expiresAt.getTime() - Date.now()
-//   });
-//   return res.json({ success: true, accessToken, user: { id: user._id, email: user.email } });
-// } else {
-//   return res.json({
-//   success: true,
-//   accessToken,
-//   refreshToken: refreshDoc.token,
-//   user: {
-//     id: user._id,
-//     email: user.email,
-//     username: user.username
-//   }
-// });
-// };
-
-
-
-
-
-// const RefreshToken = require("../models/RefreshToken");
-
-// exports.refreshToken = async (req, res) => {
-//   try {
-//     // get token from body or cookie
-//     const token = req.body.refreshToken || req.cookies?.refreshToken;
-//     if (!token) return res.status(400).json({ success: false, message: "Refresh token missing" });
-
-//     const existing = await RefreshToken.findOne({ token });
-
-//     // If not found => possible reuse or token already revoked
-//     if (!existing) {
-//       // REUSE DETECTION: if a token not in DB is presented, this may be stolen and used
-//       // Optionally: log this event and revoke all tokens for user if you detect reuse
-//       return res.status(401).json({ success: false, message: "Invalid refresh token" });
-//     }
-
-//     // Check revoked / expired
-//     if (existing.revoked) {
-//       return res.status(401).json({ success: false, message: "Refresh token revoked" });
-//     }
-
-//     if (existing.isExpired()) {
-//       return res.status(401).json({ success: false, message: "Refresh token expired" });
-//     }
-
-//     // Rotation: create a new refresh token, mark current as replacedBy and revoked
-//     const newRefresh = await createRefreshToken(existing.user, {
-//       ip: req.ip,
-//       userAgent: req.get("User-Agent") || ""
-//     });
-
-//     existing.revoked = true;
-//     existing.replacedBy = newRefresh.token;
-//     await existing.save();
-
-//     // issue new access token
-//     const accessToken = signAccessToken({ id: existing.user });
-
-//     // set cookie or send body
-//     if (process.env.USE_REFRESH_COOKIE === "true") {
-//       res.cookie("refreshToken", newRefresh.token, {
-//         httpOnly: true,
-//         secure: process.env.NODE_ENV === "production",
-//         sameSite: "strict",
-//         maxAge: newRefresh.expiresAt.getTime() - Date.now()
-//       });
-//       return res.json({ success: true, accessToken });
-//     } else {
-//       return res.json({ success: true, accessToken, refreshToken: newRefresh.token });
-//     }
-//   } catch (err) {
-//     console.error("refreshToken error:", err);
-//     return res.status(500).json({ success: false, message: "Server error" });
-//   }
-// };
-
-
-
-
-// exports.logout = async (req, res) => {
-//   try {
-//     const token = req.body.refreshToken || req.cookies?.refreshToken;
-//     if (!token) return res.status(200).json({ success: true, message: "No token to revoke" });
-
-//     const rt = await RefreshToken.findOne({ token });
-//     if (rt) {
-//       rt.revoked = true;
-//       await rt.save();
-//     }
-//     // clear cookie
-//     res.clearCookie("refreshToken");
-//     return res.json({ success: true, message: "Logged out" });
-//   } catch (err) {
-//     console.error("logout error", err);
-//     return res.status(500).json({ success: false, message: "Server error" });
-//   }
-// };
-
-
-
-
-
-
-
-// const EmailLog = require("../models/EmailLog");
-// const logger = require("../utils/logger");
-// const sendEmail = require("../utils/sendEmail"); // your nodemailer util
-
-// exports.forgotPassword = async (req, res) => {
-//   const { email } = req.body;
-//   const ip = req.ip;
-//   const user = await User.findOne({ email });
-
-//   // rate limiting check earlier...
-//   const code = Math.floor(100000 + Math.random() * 900000).toString();
-
-//   // save email log (pending)
-//   const emailLog = await EmailLog.create({
-//     email,
-//     ip,
-//     user: user?._id ?? null,
-//     subject: "Password reset code",
-//     bodyPreview: `Code: ${code}`.slice(0,200),
-//     status: "sent" // update later if fail
-//   });
-
-//   try {
-//     const sent = await sendEmail(email, "Password reset code", `Your code: ${code}`);
-
-//     if (!sent) {
-//       emailLog.status = "failed";
-//       emailLog.providerResponse = { message: "sendEmail returned false" };
-//       await emailLog.save();
-
-//       logger.error("Email send failed", { email, ip, logId: emailLog._id });
-//       return res.status(500).json({ success: false, message: "Failed to send email" });
-//     }
-
-//     // success
-//     emailLog.status = "sent";
-//     emailLog.providerResponse = { success: true };
-//     await emailLog.save();
-
-//     return res.json({ success: true, message: "Reset code sent" });
-//   } catch (err) {
-//     emailLog.status = "failed";
-//     emailLog.providerResponse = { error: err.message };
-//     await emailLog.save();
-
-//     logger.error("forgotPassword error", { email, err: err.message });
-//     return res.status(500).json({ success: false, message: "Server error" });
-//   }
-// };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // controllers/authController.js
 const User = require("../models/User");
 const RefreshToken = require("../models/RefreshToken");
@@ -724,6 +8,7 @@ const { OAuth2Client } = require("google-auth-library");
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/token");
 const sendEmail = require("../utils/sendEmail");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto"); 
 
 // Initialize Google OAuth client
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -959,6 +244,13 @@ exports.login = async (req, res) => {
         message: "User not found." 
       });
     }
+    // --- PROTECT UNVERIFIED ACCOUNTS FROM LOGGING IN ---
+    if (user.email && !user.emailVerified) {
+      return res.status(403).json({
+        success: false,
+        message: "Your email address is not verified. Please check your inbox."
+      });
+    }
 
     if (!user.password) {
       return res.status(400).json({ 
@@ -966,6 +258,7 @@ exports.login = async (req, res) => {
         message: "This account has no password. Use OAuth or reset password." 
       });
     }
+    
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
@@ -1026,6 +319,7 @@ exports.login = async (req, res) => {
   }
 };
 
+
 // ==================== EMAIL-BASED SIGNUP ====================
 exports.signup = async (req, res) => {
   try {
@@ -1052,10 +346,10 @@ exports.signup = async (req, res) => {
       });
     }
 
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { phone }].filter(Boolean) 
+    const existingUser = await User.findOne({
+      $or: [{ email }, { phone }].filter(Boolean)
     });
-    
+
     if (existingUser) {
       if (existingUser.email === email) {
         return res.status(409).json({
@@ -1073,53 +367,49 @@ exports.signup = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Generate verification token before saving
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const tokenExpiry = Date.now() + 3600000; // 1 hour
+
     const newUser = await User.create({
       username,
       email,
       phone: phone || "",
-      password: hashedPassword
+      password: hashedPassword,
+      emailVerified: false,
+      emailVerificationToken: verificationToken,
+      emailVerificationExpires: tokenExpiry
     });
 
-    // Generate tokens
-    const accessToken = signAccessToken({ id: newUser._id });
-    const refreshTokenDoc = await createRefreshToken(newUser._id, {
-      ip: req.ip,
-      userAgent: req.get("User-Agent") || ""
-    });
+    // Send verification email
+    const verificationLink = `${process.env.APP_FRONTEND_URL || 'https://yourapp.com'}/verify-email?token=${verificationToken}`;
+    const emailText = `Hello ${username},\n\nPlease verify your account using this link: ${verificationLink}`;
+    const emailHtml = `
+      <div>
+        <h2>Welcome to our App!</h2>
+        <p>Please click the button below to verify your email address:</p>
+        <a href="${verificationLink}" style="padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; display: inline-block;">Verify Email</a>
+      </div>
+    `;
 
-    if (process.env.USE_REFRESH_COOKIE === "true") {
-      res.cookie("refreshToken", refreshTokenDoc.token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 30 * 24 * 60 * 60 * 1000
-      });
-      
-      return res.status(201).json({
-        success: true,
-        message: "Account created successfully.",
-        accessToken,
-        user: {
-          id: newUser._id,
-          username: newUser.username,
-          email: newUser.email,
-          phone: newUser.phone
-        }
-      });
-    } else {
-      return res.status(201).json({
-        success: true,
-        message: "Account created successfully.",
-        accessToken,
-        refreshToken: refreshTokenDoc.token,
-        user: {
-          id: newUser._id,
-          username: newUser.username,
-          email: newUser.email,
-          phone: newUser.phone
-        }
-      });
+    try {
+      await sendEmail(email, "Verify Your Email Address", emailText, emailHtml);
+    } catch (emailErr) {
+      console.error("Signup email delivery failed:", emailErr.message);
+      // Signup still completes — user can request a resend later
     }
+
+    // No tokens issued until email is verified
+    return res.status(201).json({
+      success: true,
+      message: "Registration successful. Please check your inbox to verify your email.",
+      requiresVerification: true,
+      user: {
+        id: newUser._id,
+        username: newUser.username,
+        email: newUser.email
+      }
+    });
 
   } catch (err) {
     console.error("Signup error:", err);
@@ -1132,7 +422,7 @@ exports.signup = async (req, res) => {
 };
 
 // ==================== GOOGLE AUTHENTICATION ====================
-exports.googleAuth = async (req, res) => {
+exports.googleLogin = async (req, res) => {
   try {
     const { idToken } = req.body;
     
@@ -1239,6 +529,7 @@ exports.googleAuth = async (req, res) => {
   }
 };
 
+
 // ==================== FORGOT PASSWORD ====================
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
@@ -1248,7 +539,7 @@ exports.forgotPassword = async (req, res) => {
     if (!email) {
       return res.json({
         success: true,
-        message: "If the email exists, a reset code has been sent."
+        message: "a reset code has been sent."
       });
     }
 
@@ -1257,7 +548,7 @@ exports.forgotPassword = async (req, res) => {
     if (!rateLimitCheck.allowed) {
       return res.json({
         success: true,
-        message: "If the email exists, a reset code has been sent."
+        message: "a reset code has been sent."
       });
     }
 
@@ -1282,12 +573,13 @@ exports.forgotPassword = async (req, res) => {
       // Don't reveal whether email exists
       return res.json({
         success: true,
-        message: "If the email exists, a reset code has been sent."
+        message: "a reset code has been sent."
       });
     }
 
     // Generate reset code
-    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const resetCode = crypto.randomInt(100000, 1000000).toString();
+    console.log("Generated OTP:", resetCode);
     const expiry = new Date(Date.now() + 10 * 60 * 1000);
 
     user.resetCode = resetCode;
@@ -1325,7 +617,7 @@ exports.forgotPassword = async (req, res) => {
     // Always return the same generic 200 — never reveal whether the email exists
     return res.status(200).json({
       success: true,
-      message: "If the email exists, a reset code has been sent."
+      message: "a reset code has been sent."
     });
 
   } catch (err) {
@@ -1334,7 +626,7 @@ exports.forgotPassword = async (req, res) => {
     console.error("Forgot password error:", err);
     return res.status(200).json({
       success: true,
-      message: "If the email exists, a reset code has been sent."
+      message: "a reset code has been sent."
     });
   }
 };
@@ -1573,4 +865,61 @@ exports.resetRateLimit = async (req, res) => {
 };
 
 
-module.exports = exports;
+// Email Verification Function
+async function verifyEmail(req, res) {
+  const { token } = req.body;
+  const user = await User.findOne({
+    emailVerificationToken: token,
+    emailVerificationExpires: { $gt: Date.now() }
+  });
+
+  if (!user) return res.status(400).json({ error: "Invalid/expired token" });
+
+  user.emailVerified = true;
+  user.emailVerificationToken = undefined;
+  user.emailVerificationExpires = undefined;
+  await user.save();
+
+  res.json({ message: "Email verified successfully" });
+}
+
+module.exports = {
+  ...exports,
+  register: exports.signup,
+  sendEmailVerification: async (req, res) => { 
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ success: false, message: "Email is required." });
+
+      const user = await User.findOne({ email });
+      if (!user) {
+        return res.status(200).json({ success: true, message: "If an account exists, a link has been sent." });
+      }
+
+      if (user.emailVerified) {
+        return res.status(400).json({ success: false, message: "Email is already verified." });
+      }
+
+      // Generate new token if expired or missing
+      if (!user.emailVerificationToken || user.emailVerificationExpires < Date.now()) {
+        user.emailVerificationToken = crypto.randomBytes(32).toString("hex");
+        user.emailVerificationExpires = Date.now() + 3600000;
+        await user.save();
+      }
+
+      const verificationLink = `${process.env.APP_FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000'}/verify-email?token=${user.emailVerificationToken}`;
+      await sendEmail(
+        email, 
+        "Verify Your Email Address", 
+        `Verify here: ${verificationLink}`, 
+        `<p>Please verify your email: <a href="${verificationLink}">${verificationLink}</a></p>`
+      );
+
+      res.status(200).json({ success: true, message: "Verification email sent." });
+    } catch (err) {
+      console.error("Resend verification error:", err);
+      res.status(500).json({ success: false, message: "Server error." });
+    }
+  },
+  verifyEmail,
+};

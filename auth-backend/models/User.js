@@ -8,6 +8,12 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, unique: true, sparse: true },
     password: { type: String }, // hashed; not required for OAuth-only accounts
     googleId: { type: String },
+    
+    // --- EMAIL VERIFICATION FIELDS ---
+    emailVerified: { type: Boolean, default: false },
+    emailVerificationToken: { type: String },
+    emailVerificationExpires: { type: Date },
+    
     resetCode: { type: String },
     resetCodeExpiry: { type: Date },
     refreshToken: { type: String }

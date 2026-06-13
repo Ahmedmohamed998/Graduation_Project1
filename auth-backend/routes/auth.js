@@ -1,53 +1,3 @@
-// const express = require("express");
-// const router = express.Router();
-
-// const authController = require("../controllers/authController");
-// const smsController = require("../controllers/smsController");
-// const jwtMiddleware = require("../middleware/auth");
-// const { verifyGoogleToken } = require("../utils/googleAuth");
-
-
-// // SMS endpoints
-// router.post("/sms/send", smsController.sendCode);
-// router.post("/sms/verify", smsController.verifyCode);
-
-// // Auth endpoints
-// router.post("/signup", authController.signup);
-// router.post("/login", authController.login);
-
-// // Public routes
-// router.post("/login", authController.login);
-// router.post("/signup", authController.signup);
-// router.post("/google", authController.googleAuth);
-// router.post("/forgot-password", authController.forgotPassword);
-// router.post("/reset-password", authController.resetPassword);
-// router.post("/refresh-token", authController.refreshToken);
-// router.post("/logout", authController.logout);
-
-// // Google Sign-In token verification
-// router.post("/google-signin", async (req, res) => {
-//   try {
-//     const { idToken } = req.body;
-
-//     const googleUser = await verifyGoogleToken(idToken);
-
-//     res.json({ success: true, user: googleUser });
-
-//   } catch (err) {
-//     console.error(err);
-//     res.status(400).json({ success: false, message: "Invalid Google token" });
-//   }
-// });
-
-// // Protected route example
-// router.get("/me", jwtMiddleware, authController.checkAuth);
-
-// module.exports = router;
-
-
-
-
-
 const express = require("express");
 const router = express.Router();
 const rateLimit = require("express-rate-limit");
@@ -80,7 +30,7 @@ const forgotPasswordLimiter = rateLimit({
 
 const authController = require("../controllers/authController");
 const smsController = require("../controllers/smsController");
-const jwtMiddleware = require("../middleware/auth");
+const { jwtMiddleware } = require("../middleware/auth");
 
 // SMS endpoints
 router.post("/sms/send", smsController.sendCode);
@@ -90,9 +40,10 @@ router.post("/sms/verify", smsController.verifyCode);
 router.post("/signup", authController.signup);
 router.post("/login", loginLimiter, authController.login);
 router.post("/signup-phone", authController.signupWithPhone);
+router.post('/verify-email', authController.verifyEmail);
 
 // Google Auth - Use the controller that creates users and returns tokens
-router.post("/google-signin", authController.googleAuth);
+router.post("/google-signin", authController.googleLogin);
 
 // Password management
 router.post("/forgot-password", forgotPasswordLimiter, authController.forgotPassword);
