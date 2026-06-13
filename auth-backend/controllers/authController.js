@@ -540,9 +540,9 @@ exports.forgotPassword = async (req, res) => {
 
   try {
     if (!email) {
-      return res.json({
-        success: true,
-        message: "a reset code has been sent."
+      return res.status(400).json({
+        success: false,
+        message: "Email is required."
       });
     }
 
@@ -550,35 +550,30 @@ exports.forgotPassword = async (req, res) => {
     const rateLimitCheck = await checkEmailRateLimit(email, ip);
     if (!rateLimitCheck.allowed) {
       return res.json({
-        success: true,
-        message: "a reset code has been sent."
+        success: false,
+        message: rateLimitCheck.reason || "Too many attempts. Please try again later."
       });
     }
 
     const user = await User.findOne({ email });
-    
-    // Create email log (pending)
+
+    // === NEW BEHAVIOR: Different message if email not found ===
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this email address. Please check the email or sign up first."
+      });
+    }
+
+    // Create email log
     const emailLog = await EmailLog.create({
       email,
       ip,
-      user: user?._id || null,
+      user: user._id,
       subject: "Password Reset Code",
       bodyPreview: "Your password reset code",
       status: "sent"
     });
-
-    if (!user) {
-      // Update email log
-      emailLog.status = "failed";
-      emailLog.providerResponse = { message: "User not found" };
-      await emailLog.save();
-
-      // Don't reveal whether email exists
-      return res.json({
-        success: true,
-        message: "a reset code has been sent."
-      });
-    }
 
     // Generate reset code
     const resetCode = crypto.randomInt(100000, 1000000).toString();
@@ -600,7 +595,6 @@ exports.forgotPassword = async (req, res) => {
       </div>
     `;
 
-    // Wrap email send so transport failures never change the response shape
     try {
       const sent = await sendEmail(
         email,
@@ -611,28 +605,26 @@ exports.forgotPassword = async (req, res) => {
       emailLog.status = sent ? "sent" : "failed";
       emailLog.providerResponse = sent ? { success: true } : { message: "sendEmail returned false" };
     } catch (emailErr) {
-      console.error("Forgot password — email send error (silent):", emailErr.message);
+      console.error("Forgot password — email send error:", emailErr.message);
       emailLog.status = "failed";
       emailLog.providerResponse = { error: emailErr.message };
     }
     await emailLog.save();
 
-    // Always return the same generic 200 — never reveal whether the email exists
     return res.status(200).json({
       success: true,
-      message: "a reset code has been sent."
+      message: "A reset code has been sent to your email."
     });
 
   } catch (err) {
-    // Swallow internal errors silently — returning a 500 would leak a different
-    // response shape that could be used for user enumeration.
     console.error("Forgot password error:", err);
-    return res.status(200).json({
-      success: true,
-      message: "a reset code has been sent."
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong. Please try again later."
     });
   }
 };
+
 
 // ==================== RESET PASSWORD ====================
 exports.resetPassword = async (req, res) => {
