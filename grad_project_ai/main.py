@@ -193,37 +193,73 @@ async def voice_extract(request: Request, body: VoiceExtractRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
 
-    # Internally call categorize to enrich the response
-    try:
-        ext = extraction["extracted"]
-        items = ext.get("items") or []
-        # Build cat_text from all item names (English) + total amount + currency
-        item_names = ", ".join(
-            item.get("name_en") or item.get("name", "")
-            for item in items
-            if item.get("name_en") or item.get("name")
-        )
-        total = ext.get("totalAmount")
-        currency = ext.get("currency", "")
-        merchant = ext.get("merchant", "")
-        cat_text = " ".join(filter(None, [
-            item_names or None,
-            f"from {merchant}" if merchant else None,
-            str(total) if total else None,
-            currency,
-        ]))
-        category = await categorize_transaction(cat_text or body.transcript)
-    except Exception:
-        category = None
+    # NEW: Categorize each item individually
+    ext = extraction["extracted"]
+    items = ext.get("items") or []
+    categorized_items = []
+    
+    # Track breakdown by category group and name
+    breakdown_map = {}
+    
+    for item in items:
+        # Use categories already enriched by extract_transaction_info (LLM or fallback)
+        cat_group = item.get("categoryGroup") or "Miscellaneous"
+        cat_name = item.get("category") or "Uncategorized"
+        amount = item.get("total_price") or item.get("unit_price") or 0
+        
+        # Add to the list of categorized items
+        categorized_items.append({
+            **item,
+            "categoryGroup": cat_group,
+            "category": cat_name,
+            "confidence": 0.85 if item.get("categoryGroup") else 0.5
+        })
+        
+        # Update breakdown map
+        key = (cat_group, cat_name)
+        breakdown_map[key] = breakdown_map.get(key, 0) + amount
 
+    # Convert breakdown map to a clean list for the frontend
+    category_breakdown = [
+        {
+            "categoryGroup": g,
+            "category": c,
+            "amount": round(a, 2),
+            "currency": ext.get("currency", "EGP")
+        }
+        for (g, c), a in breakdown_map.items()
+    ]
+
+    # Calculate overall category (legacy support) - use the category with highest total amount
+    overall_category = None
+    if category_breakdown:
+        # Find category with highest aggregate amount
+        top_cat = max(category_breakdown, key=lambda x: x["amount"])
+        overall_category = {
+            "type": "expense",
+            "categoryGroup": top_cat["categoryGroup"],
+            "category": top_cat["category"],
+            "confidence": 0.9,
+            "detectedAmount": ext.get("totalAmount"),
+            "detectedCurrency": ext.get("currency", "EGP"),
+            "suggestedDescription": ", ".join([i.get("name_en") or i.get("name", "") for i in items])[:100],
+            "language": "en"
+        }
+
+    # Build response
     response = {
         "source": "voice",
         "transcript": body.transcript,
         "language": body.language,
         **extraction,
+        "categorizedItems": categorized_items,
+        "categoryBreakdown": category_breakdown, # NEW: Grouped breakdown
+        "totalAmount": ext.get("totalAmount")
     }
-    if category:
-        response["category"] = category
+    
+    # Optional: keep old "category" field for backward compatibility
+    if overall_category:
+        response["category"] = overall_category
 
     return response
 

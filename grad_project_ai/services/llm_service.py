@@ -1,8 +1,11 @@
 import os
 import json
 import re
+import logging
 from openai import AsyncAzureOpenAI
 from services.memory_service import get_chat_history, save_chat_turn
+
+logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────
 #  FINANCIAL ADVISOR — Chat system prompt
@@ -33,6 +36,7 @@ Core Rules:
 - Always respond with valid JSON only. Never add explanations, apologies, or extra text outside the JSON.
 - Be accurate, conservative, and context-aware.
 - Support both English and Arabic input.
+- If the text contains multiple items, focus on the main item being described.
 - If the text is unclear or missing critical info (amount, type), still return the best possible guess and set "confidence" accordingly.
 
 Available transaction types: "income" or "expense"
@@ -218,13 +222,35 @@ Extract these fields:
 - currency: Currency code. If 'جنيه' or 'ج.م' → "EGP", '$' → "USD". Default "EGP" for Arabic input.
 - date: Date mentioned, ISO format YYYY-MM-DD (or null)
 - rawTranscript: The original input text, unchanged
-- items: Array of ALL items mentioned. Each item has:
+- items: Array of ALL items mentioned. Each item MUST have its own category. Each item has:
     - name: item name in original language (string)
     - name_en: item name translated to English (string)
     - quantity: number of units (number, default 1)
     - unit_price: price per unit (number or null)
     - total_price: quantity × unit_price (number or null)
+    - categoryGroup: one of the exact group names from the list below (DO NOT leave null)
+    - category: exact category name from the list below (DO NOT leave null)
 - totalAmount: sum of all items' total_price (number or null)
+
+Use these categories (use EXACT strings):
+
+Housing: Rent/Mortgage, Home Maintenance, Utilities, Internet & Phone, Property Tax, Home Insurance, Furniture & Appliances
+Transportation: Fuel/Gas, Public Transport/Uber/Taxi, Vehicle Maintenance, Car Insurance, Parking & Tolls, Vehicle Loan, Car Rental
+Food & Dining: Groceries, Restaurants/Dining Out, Coffee/Snacks, Fast Food, Food Delivery, Alcohol & Bars
+Shopping: Clothing, Electronics, Shoes & Accessories, Jewelry & Watches, Department Stores, Online Shopping, Toys & Hobbies, Books & Magazines, Sports Equipment, Pet Supplies
+Personal Care: Hair & Salon, Skincare & Cosmetics, Spa & Massage, Gym & Fitness, Pharmacy & Health
+Healthcare: Doctor Visits, Dental Care, Vision Care, Medical Tests, Hospital Bills, Health Insurance
+Entertainment: Movies & Theater, Concerts & Events, Games & Gaming, Streaming Services, Music & Podcasts, Amusement Parks
+Education: Tuition & Fees, Books & Supplies, Online Courses, Student Loans, Workshops & Training
+Bills & Fees: Electricity Bill, Water Bill, Gas Bill, Trash & Recycling, Sewer Bill, HOA Fees, Bank Fees, Late Fees
+Insurance: Life Insurance, Health Insurance, Car Insurance, Home Insurance, Travel Insurance
+Savings & Investments: Savings Account, Emergency Fund, Retirement Account, Stocks & Bonds, Mutual Funds, Real Estate Investment
+Income: Salary, Freelance Income, Business Income, Investment Income, Gift Received, Refund, Bonus, Commission
+Gifts & Donations: Gifts Given, Charitable Donations, Religious Offerings, Sponsorships
+Travel: Flights, Hotels & Accommodation, Luggage & Travel Gear, Travel Insurance, Tours & Activities
+Kids & Family: Childcare & Daycare, School Fees, Children's Clothing, Toys & Games, Allowance, Baby Supplies
+Pets: Pet Food, Vet Visits, Pet Supplies, Pet Grooming, Pet Insurance
+Miscellaneous: Uncategorized, Other Expenses
 
 Common Arabic purchase phrases:
 - اشتريت / شريت = "I bought"
@@ -236,9 +262,9 @@ Common Arabic purchase phrases:
 
 Examples:
 - "اشتريت تفاح بـ 10 جنيه وموز بـ 5 جنيه" →
-  items: [{name:"تفاح",name_en:"Apple",quantity:1,unit_price:10,total_price:10},{name:"موز",name_en:"Banana",quantity:1,unit_price:5,total_price:5}], totalAmount: 15
+  items: [{name:"تفاح",name_en:"Apple",quantity:1,unit_price:10,total_price:10,categoryGroup:"Food & Dining",category:"Groceries"},{name:"موز",name_en:"Banana",quantity:1,unit_price:5,total_price:5,categoryGroup:"Food & Dining",category:"Groceries"}], totalAmount: 15
 - "I bought 2 kg apples for 20 and a bottle of water for 5" →
-  items: [{name:"apples",name_en:"Apples",quantity:2,unit_price:10,total_price:20},{name:"water",name_en:"Water",quantity:1,unit_price:5,total_price:5}], totalAmount: 25
+  items: [{name:"apples",name_en:"Apples",quantity:2,unit_price:10,total_price:20,categoryGroup:"Food & Dining",category:"Groceries"},{name:"water",name_en:"Water",quantity:1,unit_price:5,total_price:5,categoryGroup:"Food & Dining",category:"Groceries"}], totalAmount: 25
 
 Return:
 {
@@ -247,16 +273,15 @@ Return:
   "date": null,
   "rawTranscript": "...",
   "items": [
-    {"name": "...", "name_en": "...", "quantity": 1, "unit_price": 0.0, "total_price": 0.0}
+    {"name": "...", "name_en": "...", "quantity": 1, "unit_price": 0.0, "total_price": 0.0, "categoryGroup": "...", "category": "..."}
   ],
   "totalAmount": 0.0
 }"""
 
-
 async def extract_transaction_info(transcript: str, language: str) -> dict:
     """
     Extract structured financial info from a voice transcript.
-    Now supports multi-item receipts via items[] array.
+    Now supports multi-item receipts via items[] array with categories.
 
     Returns:
         {
@@ -311,6 +336,49 @@ async def extract_transaction_info(transcript: str, language: str) -> dict:
     if computed_total > 0:
         extracted["totalAmount"] = round(computed_total, 2)
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # FALLBACK CATEGORIZATION FOR ITEMS MISSING CATEGORIES
+    # After LLM extraction, check each item for missing category fields
+    # ─────────────────────────────────────────────────────────────────────────
+    for item in items:
+        has_category = item.get("category") and item.get("categoryGroup")
+        
+        if not has_category:
+            # Build text for categorization from available item data
+            item_text = f"{item.get('name_en') or item.get('name', 'unknown')}"
+            
+            # Add price context if available (helps with categorization)
+            price = item.get("total_price") or item.get("unit_price")
+            currency = extracted.get("currency", "EGP")
+            if price:
+                item_text += f" {price} {currency}"
+            
+            # Call categorize_transaction to get categories
+            try:
+                cat_result = await categorize_transaction(item_text)
+                # Only apply if we got valid categories
+                if cat_result.get("categoryGroup") and cat_result.get("category"):
+                    item["categoryGroup"] = cat_result.get("categoryGroup")
+                    item["category"] = cat_result.get("category")
+                    logger.info(f"[Extract] Added categories to item '{item.get('name')}': "
+                               f"{cat_result['categoryGroup']} → {cat_result['category']}")
+                else:
+                    # Default fallback when categorization fails
+                    item.setdefault("categoryGroup", "Miscellaneous")
+                    item.setdefault("category", "Uncategorized")
+                    logger.warning(f"[Extract] Categorization returned no valid categories for '{item.get('name')}', using defaults")
+            except Exception as e:
+                # Handle categorization service errors gracefully
+                item.setdefault("categoryGroup", "Miscellaneous")
+                item.setdefault("category", "Uncategorized")
+                logger.error(f"[Extract] Categorization failed for '{item.get('name')}': {e}")
+        else:
+            # Ensure category fields exist (even if present, validate they're not empty strings)
+            if not item.get("categoryGroup"):
+                item["categoryGroup"] = "Miscellaneous"
+            if not item.get("category"):
+                item["category"] = "Uncategorized"
+
     # Determine missing critical fields
     missing = []
     if not items:
@@ -319,6 +387,14 @@ async def extract_transaction_info(transcript: str, language: str) -> dict:
         missing.append("totalAmount")
     if not extracted.get("currency"):
         missing.append("currency")
+    
+    # Check if any items are still missing categories (partial success)
+    items_missing_categories = [
+        item.get("name") for item in items 
+        if not item.get("category") or not item.get("categoryGroup")
+    ]
+    if items_missing_categories:
+        missing.append(f"categories_for_items: {items_missing_categories}")
 
     # Confidence based on new schema
     score = 0
@@ -335,7 +411,6 @@ async def extract_transaction_info(transcript: str, language: str) -> dict:
         "missingFields": missing,
         "needsConfirmation": needs_confirmation,
     }
-
 
 # ─────────────────────────────────────────────
 #  OCR EXTRACT — OCR text → structured invoice
