@@ -43,17 +43,16 @@ accountSchema.pre('save', function (next) {
     this.lastUpdated = new Date();
     // Guard: allocatedSavings must never be negative
     if (this.allocatedSavings < 0) this.allocatedSavings = 0;
-    // Guard: allocatedSavings must never exceed totalBalance
-    if (this.allocatedSavings > this.totalBalance) this.allocatedSavings = this.totalBalance;
     next();
 });
 
 /**
  * Virtual: availableBalance
- * Money the user can freely spend — total balance minus what is locked in savings goals.
+ * In Option 1, totalBalance is already physically reduced by savings,
+ * so the available spending balance is exactly the totalBalance.
  */
 accountSchema.virtual('availableBalance').get(function () {
-    return Math.max(0, Math.round((this.totalBalance - this.allocatedSavings) * 100) / 100);
+    return Math.max(0, Math.round(this.totalBalance * 100) / 100);
 });
 
 // Include virtuals in JSON responses

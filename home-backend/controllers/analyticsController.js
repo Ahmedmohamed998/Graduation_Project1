@@ -79,7 +79,7 @@ const getOverview = async (req, res, next) => {
         const savingsRate  = calcSavingsRate(totalIncome, totalExpense);
         // allocatedSavings = money currently locked in savings goals
         const allocatedSavings = round2(account?.allocatedSavings || 0);
-        const availableBalance = round2(account ? Math.max(0, account.totalBalance - account.allocatedSavings) : 0);
+        const availableBalance = round2(account?.availableBalance || 0);
 
         // ── Top 5 expense categories ──────────────────────────────────────────
         const catAgg = await Transaction.aggregate([
@@ -591,7 +591,7 @@ const getSavingsOverview = async (req, res, next) => {
             // Balance context
             balanceContext: {
                 totalBalance:     round2(account?.totalBalance || 0),
-                availableBalance: round2(Math.max(0, (account?.totalBalance || 0) - (account?.allocatedSavings || 0))),
+                availableBalance: round2(account?.availableBalance || 0),
                 allocatedSavings: totalAllocated
             },
             goals: {

@@ -255,7 +255,7 @@ const contributeToGoal = async (req, res, next) => {
         const account = await getOrCreateAccount(userId);
 
         // ── Available-balance check ──────────────────────────────────────────
-        const available = roundToTwo(account.availableBalance);
+        const available = roundToTwo(account.totalBalance);
         if (roundedAmount > available) {
             return res.status(400).json({
                 error: 'Insufficient available balance',
@@ -283,10 +283,15 @@ const contributeToGoal = async (req, res, next) => {
         savingsGoal.savedAmount = balanceAfter;
         await savingsGoal.save(); // pre-save hook handles status transition
 
-        // ── Update account allocatedSavings atomically ───────────────────────
+        // ── Update account balance and allocatedSavings atomically ───────────
         await Account.findOneAndUpdate(
             { userId },
-            { $inc: { allocatedSavings: effectiveAmount } },
+            { 
+                $inc: { 
+                    totalBalance: -effectiveAmount,
+                    allocatedSavings: effectiveAmount 
+                } 
+            },
             { new: true }
         );
 
@@ -385,10 +390,15 @@ const withdrawFromGoal = async (req, res, next) => {
         savingsGoal.savedAmount = balanceAfter;
         await savingsGoal.save(); // pre-save hook reopens goal if it was completed
 
-        // ── Restore allocatedSavings ─────────────────────────────────────────
+        // ── Restore allocatedSavings and increment totalBalance ──────────────
         await Account.findOneAndUpdate(
             { userId },
-            { $inc: { allocatedSavings: -roundedAmount } },
+            { 
+                $inc: { 
+                    totalBalance: roundedAmount,
+                    allocatedSavings: -roundedAmount 
+                } 
+            },
             { new: true }
         );
 
@@ -513,13 +523,18 @@ const deleteSavingsGoal = async (req, res, next) => {
 
         const fundsToRestore = roundToTwo(savingsGoal.savedAmount);
 
-        // ── Restore allocated savings back to available balance ───────────────
+        // ── Restore allocated savings back to total balance ───────────────────
         if (fundsToRestore > 0) {
             await Account.findOneAndUpdate(
                 { userId },
-                { $inc: { allocatedSavings: -fundsToRestore } }
+                { 
+                    $inc: { 
+                        totalBalance: fundsToRestore,
+                        allocatedSavings: -fundsToRestore 
+                    } 
+                }
             );
-            logger.info(`Restored ${fundsToRestore} to availableBalance on goal deletion for user ${userId}`);
+            logger.info(`Restored ${fundsToRestore} to totalBalance on goal deletion for user ${userId}`);
         }
 
         // ── Delete goal and its transaction history ───────────────────────────
