@@ -42,7 +42,7 @@ router.post("/login", loginLimiter, authController.login);
 router.post("/signup-phone", authController.signupWithPhone);
 
 // Google Auth - Use the controller that creates users and returns tokens
-router.post("/google-signin", authController.googleAuth);
+router.post("/google-signin", authController.googleLogin);
 
 // Password management
 router.post(
