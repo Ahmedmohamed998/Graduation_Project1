@@ -30,7 +30,7 @@ const forgotPasswordLimiter = rateLimit({
 
 const authController = require("../controllers/authController");
 const smsController = require("../controllers/smsController");
-const jwtMiddleware = require("../middleware/auth");
+const { jwtMiddleware } = require("../middleware/auth");
 
 // SMS endpoints
 router.post("/sms/send", smsController.sendCode);
