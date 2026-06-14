@@ -623,7 +623,212 @@ exports.forgotPassword = async (req, res) => {
     });
   }
 };
+// ==================== RESEND PASSWORD RESET OTP ====================
+exports.resendResetOTP = async (req, res) => {
+  const { email } = req.body;
+  const ip = req.ip;
 
+  try {
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required."
+      });
+    }
+
+    // Rate limiting check
+    const rateLimitCheck = await checkEmailRateLimit(email, ip);
+    if (!rateLimitCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        message: rateLimitCheck.reason || "Too many requests. Please try again later."
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this email address."
+      });
+    }
+
+    // Cooldown check (allow resend every 60 seconds)
+    const COOLDOWN_MS = 60 * 1000;
+    if (user.resetCodeExpiry) {
+      const timeSinceCreation = 10 * 60 * 1000 - (user.resetCodeExpiry - new Date());
+      if (timeSinceCreation < COOLDOWN_MS) {
+        const waitTime = Math.ceil((COOLDOWN_MS - timeSinceCreation) / 1000);
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${waitTime} seconds before requesting a new code.`
+        });
+      }
+    }
+
+    // Create email log
+    const emailLog = await EmailLog.create({
+      email,
+      ip,
+      user: user._id,
+      subject: "Password Reset Code (Resent)",
+      bodyPreview: "Your new password reset code",
+      status: "sent"
+    });
+
+    // Generate NEW reset code
+    const resetCode = crypto.randomInt(100000, 1000000).toString();
+    const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    user.resetCode = resetCode;
+    user.resetCodeExpiry = expiry;
+    await user.save();
+
+    // Send email
+    const emailText = `Your new password reset code is: ${resetCode}\n\nIt expires in 10 minutes.`;
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #10B981;">Password Reset Request</h2>
+        <p>We received a request to resend your password reset code. Here is your new code:</p>
+        <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 2px; margin: 20px 0; border-radius: 8px; color: #333;">
+          ${resetCode}
+        </div>
+        <p>This code will expire in <strong>10 minutes</strong>.</p>
+        <p>If you didn't request this, please ignore this email.</p>
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+        <p style="color: #777; font-size: 12px; text-align: center;">This is an automated message from Hasibha Track.</p>
+      </div>
+    `;
+
+    try {
+      const sent = await sendEmail(email, "Your New Password Reset Code", emailText, emailHtml);
+      emailLog.status = sent ? "sent" : "failed";
+      emailLog.providerResponse = sent ? { success: true } : { message: "sendEmail returned false" };
+    } catch (emailErr) {
+      emailLog.status = "failed";
+      emailLog.providerResponse = { error: emailErr.message };
+    }
+    await emailLog.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "A new reset code has been sent to your email."
+    });
+
+  } catch (err) {
+    console.error("Resend reset OTP error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong. Please try again later."
+    });
+  }
+};
+
+
+// ==================== RESEND PASSWORD RESET OTP ====================
+exports.resendResetOTP = async (req, res) => {
+  const { email } = req.body;
+  const ip = req.ip;
+
+  try {
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required."
+      });
+    }
+
+    // Rate limiting check (stricter for resend - maybe 3 attempts per hour)
+    const rateLimitCheck = await checkEmailRateLimit(email, ip);
+    if (!rateLimitCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        message: rateLimitCheck.reason || "Too many requests. Please try again later."
+      });
+    }
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this email address."
+      });
+    }
+
+    // Check if previous code is still valid (optional - to prevent abuse)
+    if (user.resetCodeExpiry && user.resetCodeExpiry > new Date()) {
+      const timeLeft = Math.ceil((user.resetCodeExpiry - new Date()) / 60000);
+      return res.status(429).json({
+        success: false,
+        message: `Please wait ${timeLeft} minutes before requesting a new code.`
+      });
+    }
+
+    // Create email log
+    const emailLog = await EmailLog.create({
+      email,
+      ip,
+      user: user._id,
+      subject: "Password Reset Code (Resent)",
+      bodyPreview: "Your new password reset code",
+      status: "sent"
+    });
+
+    // Generate NEW reset code
+    const resetCode = crypto.randomInt(100000, 1000000).toString();
+    console.log("Generated NEW OTP:", resetCode);
+    const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    user.resetCode = resetCode;
+    user.resetCodeExpiry = expiry;
+    await user.save();
+
+    // Send email with new code
+    const emailText = `Your new password reset code is: ${resetCode}\n\nIt expires in 10 minutes.\n\nIf you didn't request this, please ignore this email.`;
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #4CAF50;">Password Reset Request</h2>
+        <p>We received a request to reset your password. Here is your new verification code:</p>
+        <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 2px; margin: 20px 0;">
+          ${resetCode}
+        </div>
+        <p>This code will expire in <strong>10 minutes</strong>.</p>
+        <p>If you didn't request this, please ignore this email and your password will remain unchanged.</p>
+        <hr style="margin: 20px 0;">
+        <p style="color: #777; font-size: 12px;">This is an automated message, please do not reply.</p>
+      </div>
+    `;
+
+    try {
+      const sent = await sendEmail(
+        email,
+        "Your New Password Reset Code",
+        emailText,
+        emailHtml
+      );
+      emailLog.status = sent ? "sent" : "failed";
+      emailLog.providerResponse = sent ? { success: true } : { message: "sendEmail returned false" };
+    } catch (emailErr) {
+      console.error("Resend OTP — email send error:", emailErr.message);
+      emailLog.status = "failed";
+      emailLog.providerResponse = { error: emailErr.message };
+    }
+    await emailLog.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "A new reset code has been sent to your email."
+    });
+
+  } catch (err) {
+    console.error("Resend reset OTP error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong. Please try again later."
+    });
+  }
+};
 
 // ==================== RESET PASSWORD ====================
 exports.resetPassword = async (req, res) => {

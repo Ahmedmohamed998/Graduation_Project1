@@ -26,6 +26,17 @@ const forgotPasswordLimiter = rateLimit({
     message: "Too many password-reset requests. Please try again later.",
   },
 });
+
+const resendOTPLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // 3 attempts per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many resend attempts. Please try again later.",
+  },
+});
 // ──────────────────────────────────────────────────────────────────────────
 
 const authController = require("../controllers/authController");
@@ -48,8 +59,9 @@ router.post("/google-signin", authController.googleLogin);
 router.post(
   "/forgot-password",
   forgotPasswordLimiter,
-  authController.forgotPassword,
+  authController.forgotPassword
 );
+router.post("/resend-reset-otp", resendOTPLimiter, authController.resendResetOTP);
 router.post("/reset-password", authController.resetPassword);
 
 // Token management

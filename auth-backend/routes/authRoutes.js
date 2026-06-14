@@ -9,7 +9,8 @@ const {
   googleLogin,
   forgotPassword,
   resetPassword,
-  sendEmailVerification
+  sendEmailVerification,
+  resendResetOTP,
 } = require("../controllers/authController");
 
 // Import Middlewares correctly from the exported object
@@ -22,6 +23,7 @@ router.post("/google", googleLogin);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
 router.post("/send-email-code", sendEmailVerification);
+router.post("/resend-reset-otp", resendResetOTP);
 // POST /api/auth/register
 router.post("/register", authController.register);
 
