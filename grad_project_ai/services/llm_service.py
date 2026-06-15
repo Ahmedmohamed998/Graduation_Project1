@@ -583,7 +583,7 @@ async def extract_from_ocr_text(
     response = await client.chat.completions.create(
         model=deployment_name,
         messages=messages,
-        max_completion_tokens=800
+        max_completion_tokens=2000
     )
 
     raw = response.choices[0].message.content.strip()
@@ -625,9 +625,19 @@ async def extract_from_ocr_text(
     extracted.setdefault("rawText", raw_text)
 
     # ─────────────────────────────────────────────────────────────
-    # PER-ITEM CATEGORIZATION (batch first, per-item as fallback)
+    # FALLBACK: Parse items from raw text if LLM returned empty []
     # ─────────────────────────────────────────────────────────────
     items = extracted.get("items", [])
+    if not items:
+        parsed_items = _parse_items_from_raw_text(raw_text)
+        if parsed_items:
+            extracted["items"] = parsed_items
+            items = parsed_items
+            logger.info(f"[OCR Extract] Fallback parser recovered {len(parsed_items)} items from raw text")
+
+    # ─────────────────────────────────────────────────────────────
+    # PER-ITEM CATEGORIZATION (batch first, per-item as fallback)
+    # ─────────────────────────────────────────────────────────────
     if items:
         try:
             await categorize_items_batch(items)
@@ -690,3 +700,104 @@ async def extract_from_ocr_text(
         "missingFields":      missing,
         "needsConfirmation":  needs_confirmation,
     }
+
+
+def _parse_items_from_raw_text(raw_text: str) -> list:
+    """
+    Regex-based fallback parser to extract line items from raw OCR text
+    when the LLM fails to do so.
+    
+    Handles patterns like:
+      3\nFalafel plate basic (6PCS)\nEGP 150.00
+      Black Grapes\n9.60 SR
+      2.000 kg\nOnions\n1.28 SR
+    """
+    items = []
+    lines = raw_text.split("\n")
+    
+    # Pattern 1: "Qty\nItem Name\nCurrency Amount" (Foodics-style)
+    # Look for sequences: number line → text line → currency+amount line
+    currency_amount_pattern = re.compile(
+        r'(?:EGP|SR|SAR|USD|EUR|LE|L\.E\.?|جنيه|ج\.م)\s*[\d,]+\.?\d*'
+        r'|[\d,]+\.?\d*\s*(?:EGP|SR|SAR|USD|EUR|LE|L\.E\.?|جنيه|ج\.م)',
+        re.IGNORECASE
+    )
+    qty_pattern = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*(?:kg|pcs|pc|x|units?)?\s*$', re.IGNORECASE)
+    
+    # Skip lines that are clearly headers/footers
+    skip_words = {'subtotal', 'total', 'vat', 'tax', 'net amount', 'change', 'received',
+                  'recieved', 'cash', 'products count', 'powered by', 'thank you',
+                  'invoice', 'date', 'qty', 'item', 'price', 'amount', 'call#',
+                  'check#', 'pick up', 'printed at', 'sales person', 'order'}
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Skip empty or header/footer lines
+        if not line or any(skip in line.lower() for skip in skip_words):
+            i += 1
+            continue
+        
+        # Check if current line is a quantity
+        qty_match = qty_pattern.match(line)
+        if qty_match and i + 2 < len(lines):
+            qty = float(qty_match.group(1))
+            name_line = lines[i + 1].strip()
+            price_line = lines[i + 2].strip() if i + 2 < len(lines) else ""
+            
+            # Verify name_line is not a number/price and price_line has currency
+            if (name_line and not qty_pattern.match(name_line) 
+                and not any(skip in name_line.lower() for skip in skip_words)
+                and currency_amount_pattern.search(price_line)):
+                
+                # Extract numeric amount from price line
+                amount = _extract_amount(price_line)
+                if amount and amount > 0:
+                    unit_price = round(amount / qty, 2) if qty > 0 else amount
+                    items.append({
+                        "name": name_line,
+                        "name_en": name_line,
+                        "quantity": int(qty) if qty == int(qty) else qty,
+                        "unit_price": unit_price,
+                        "total_price": amount,
+                    })
+                    i += 3
+                    continue
+        
+        # Pattern 2: "Item Name\nAmount Currency" (two-line format)
+        if i + 1 < len(lines):
+            next_line = lines[i + 1].strip()
+            if (not any(skip in line.lower() for skip in skip_words)
+                and currency_amount_pattern.search(next_line)
+                and not qty_pattern.match(line)):
+                
+                amount = _extract_amount(next_line)
+                if amount and amount > 0:
+                    items.append({
+                        "name": line,
+                        "name_en": line,
+                        "quantity": 1,
+                        "unit_price": amount,
+                        "total_price": amount,
+                    })
+                    i += 2
+                    continue
+        
+        i += 1
+    
+    return items
+
+
+def _extract_amount(text: str) -> float | None:
+    """Extract numeric amount from a price string like 'EGP 150.00' or '9.60 SR'."""
+    # Remove currency symbols and commas, find the number
+    cleaned = re.sub(r'[A-Za-z\.\u0600-\u06FF]+', ' ', text)  # remove letters
+    cleaned = cleaned.replace(',', '')
+    numbers = re.findall(r'[\d]+\.?\d*', cleaned)
+    if numbers:
+        try:
+            return round(float(numbers[0]), 2)
+        except ValueError:
+            return None
+    return None
