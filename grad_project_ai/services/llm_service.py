@@ -81,6 +81,44 @@ Always return a JSON object with this exact structure:
   "language": "en", "ar", or "mixed"
 }"""
 
+CATEGORIZE_BATCH_SYSTEM_PROMPT = """You are a batch transaction categorization engine for a personal finance app.
+Analyze the list of items from a receipt or statement and return a JSON object with categories for each.
+
+Core Rules:
+- Support English and Arabic names.
+- Be accurate and context-aware.
+- Always respond with valid JSON only.
+
+Income Categories:
+- Salary / Wages, Freelance / Side Hustle, Business Income, Investments / Dividends, Bonuses / Commissions, Gifts / Refunds, Rental Income, Other Income
+
+Expense Category Groups and Categories:
+- Housing: Rent/Mortgage, Home Maintenance, Utilities, Internet & Phone, Home Insurance
+- Transportation: Fuel/Gas, Car Maintenance/Insurance/Payments, Public Transport/Uber/Taxi, Parking
+- Food & Dining: Groceries, Restaurants/Dining Out, Coffee/Snacks/Fast Food
+- Healthcare & Medicine: Doctor/Hospital, Pharmacy/Medicine, Health Insurance, Vitamins/Supplements
+- Entertainment & Joy: Movies/Streaming, Hobbies/Sports, Concerts/Events, Gaming
+- Shopping: Clothing, Electronics, Home Decor/Furniture
+- Personal Care: Haircuts/Salon, Cosmetics, Gym/Fitness
+- Travel & Vacation: Flights, Hotels, Local Trips
+- Education: Courses, Books, School Fees
+- Gifts & Donations: Gifts, Charity
+- Subscriptions: Streaming, Apps, Gym memberships
+- Debt Repayment: Credit Card Payments, Loan Installments
+- Miscellaneous: Bank Fees, Pet Care, Childcare, Other
+
+Return this structure:
+{
+  "items": [
+    {
+      "categoryGroup": "Group Name",
+      "category": "Category Name",
+      "confidence": 0.95
+    },
+    ...
+  ]
+}"""
+
 
 def _get_azure_client() -> AsyncAzureOpenAI:
     return AsyncAzureOpenAI(
@@ -209,6 +247,62 @@ async def categorize_transaction(text: str) -> dict:
     return result
 
 
+async def categorize_items_batch(items: list[dict]) -> list[dict]:
+    """Categorize multiple items at once for OCR/Voice."""
+    if not items:
+        return []
+
+    client = _get_azure_client()
+    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+
+    items_for_llm = [
+        {
+            "itemName": item.get("name"),
+            "itemNameEn": item.get("name_en") or item.get("name"),
+            "amount": item.get("total_price") or item.get("unit_price"),
+        }
+        for item in items
+    ]
+
+    messages = [
+        {"role": "system", "content": CATEGORIZE_BATCH_SYSTEM_PROMPT},
+        {"role": "user",   "content": f"Categorize these receipt items:\n{json.dumps(items_for_llm, ensure_ascii=False, indent=2)}"}
+    ]
+
+    response = await client.chat.completions.create(
+        model=deployment_name,
+        messages=messages,
+        max_completion_tokens=800,
+        temperature=0.0
+    )
+
+    raw = response.choices[0].message.content.strip()
+    raw = re.sub(r"^```[a-z]*\n?", "", raw)
+    raw = re.sub(r"\n?```$", "", raw)
+
+    try:
+        result = json.loads(raw)
+        categorized = result.get("items", [])
+        for original, cat in zip(items, categorized):
+            original["categoryGroup"] = cat.get("categoryGroup")
+            original["category"] = cat.get("category")
+            original["categoryConfidence"] = cat.get("confidence", 0.75)
+        return items
+    except Exception as e:
+        logger.warning(f"Batch categorization failed, falling back to individual: {e}")
+        # Fallback to single categorization
+        for item in items:
+            text = f"{item.get('name_en') or item.get('name')} {item.get('total_price', '')} EGP"
+            try:
+                cat = await categorize_transaction(text)
+                item["categoryGroup"] = cat.get("categoryGroup", "Miscellaneous")
+                item["category"] = cat.get("category", "Other")
+            except Exception:
+                item.setdefault("categoryGroup", "Miscellaneous")
+                item.setdefault("category", "Uncategorized")
+        return items
+
+
 # ─────────────────────────────────────────────
 #  EXTRACT — Voice transcript → structured info
 # ─────────────────────────────────────────────
@@ -281,6 +375,7 @@ Return:
   "totalAmount": 0.0
 }"""
 
+
 async def extract_transaction_info(transcript: str, language: str) -> dict:
     """
     Extract structured financial info from a voice transcript.
@@ -341,42 +436,28 @@ async def extract_transaction_info(transcript: str, language: str) -> dict:
 
     # ─────────────────────────────────────────────────────────────────────────
     # FALLBACK CATEGORIZATION FOR ITEMS MISSING CATEGORIES
-    # After LLM extraction, check each item for missing category fields
     # ─────────────────────────────────────────────────────────────────────────
     for item in items:
         has_category = item.get("category") and item.get("categoryGroup")
-        
         if not has_category:
-            # Build text for categorization from available item data
             item_text = f"{item.get('name_en') or item.get('name', 'unknown')}"
-            
-            # Add price context if available (helps with categorization)
             price = item.get("total_price") or item.get("unit_price")
             currency = extracted.get("currency", "EGP")
             if price:
                 item_text += f" {price} {currency}"
             
-            # Call categorize_transaction to get categories
             try:
                 cat_result = await categorize_transaction(item_text)
-                # Only apply if we got valid categories
                 if cat_result.get("categoryGroup") and cat_result.get("category"):
                     item["categoryGroup"] = cat_result.get("categoryGroup")
                     item["category"] = cat_result.get("category")
-                    logger.info(f"[Extract] Added categories to item '{item.get('name')}': "
-                               f"{cat_result['categoryGroup']} → {cat_result['category']}")
                 else:
-                    # Default fallback when categorization fails
                     item.setdefault("categoryGroup", "Miscellaneous")
                     item.setdefault("category", "Uncategorized")
-                    logger.warning(f"[Extract] Categorization returned no valid categories for '{item.get('name')}', using defaults")
-            except Exception as e:
-                # Handle categorization service errors gracefully
+            except Exception:
                 item.setdefault("categoryGroup", "Miscellaneous")
                 item.setdefault("category", "Uncategorized")
-                logger.error(f"[Extract] Categorization failed for '{item.get('name')}': {e}")
         else:
-            # Ensure category fields exist (even if present, validate they're not empty strings)
             if not item.get("categoryGroup"):
                 item["categoryGroup"] = "Miscellaneous"
             if not item.get("category"):
@@ -391,20 +472,12 @@ async def extract_transaction_info(transcript: str, language: str) -> dict:
     if not extracted.get("currency"):
         missing.append("currency")
     
-    # Check if any items are still missing categories (partial success)
-    items_missing_categories = [
-        item.get("name") for item in items 
-        if not item.get("category") or not item.get("categoryGroup")
-    ]
-    if items_missing_categories:
-        missing.append(f"categories_for_items: {items_missing_categories}")
-
-    # Confidence based on new schema
+    # Confidence calc
     score = 0
-    if items:                          score += 2   # items are most critical
+    if items:                          score += 2
     if extracted.get("totalAmount"):   score += 1
     if extracted.get("currency"):      score += 1
-    if extracted.get("merchant"):      score += 1   # bonus
+    if extracted.get("merchant"):      score += 1
     confidence = round(min(0.55 + (score / 5) * 0.45, 1.0), 2)
     needs_confirmation = confidence < 0.9 or bool(missing)
 
@@ -418,42 +491,55 @@ async def extract_transaction_info(transcript: str, language: str) -> dict:
 # ─────────────────────────────────────────────
 #  OCR EXTRACT — OCR text → structured invoice
 # ─────────────────────────────────────────────
-OCR_EXTRACT_SYSTEM_PROMPT = """You are an invoice/receipt data extraction engine for a personal finance app.
-Users upload invoices from restaurants, rent, utilities, pharmacies, and supermarkets.
-Text may be in Arabic, English, or mixed (Egyptian context).
+OCR_EXTRACT_SYSTEM_PROMPT = """You are an expert invoice/receipt data extraction engine for a personal finance app used in Egypt.
 
-Always respond with valid JSON only — no explanations, no extra text.
+Always respond with valid JSON only — no explanations.
 
-Extract:
+Extract the following:
 - vendor: Business name in English (translate if Arabic)
-- vendorArabic: Original Arabic name if present (or null)
-- invoiceType: "restaurant" | "rent" | "supermarket" | "utility" | "pharmacy" | "transport" | "other"
-- items: Array of { name, name_en, quantity, unit_price, total_price } — empty array [] if not itemized
-- totalAmount: Final total paid (number)
-- taxAmount: Tax amount (number or 0)
-- currency: EGP, USD, EUR, etc.
-- date: ISO date string (YYYY-MM-DD) or null
-- rawText: Original OCR text, unchanged
+- vendorArabic: Original Arabic name if present
+- invoiceType: "restaurant" | "supermarket" | "utility" | "pharmacy" | "transport" | "rent" | "other"
+- currency: "EGP" by default
+- date: ISO format YYYY-MM-DD or null
+- totalAmount: Final total paid (Net / الإجمالي / المجموع)
+- taxAmount: Tax / VAT amount (0 if none)
+- items: Array of ALL line items. Each item MUST include category fields.
 
-Common Arabic invoice terms:
-- الإجمالي / المجموع = Total
-- ضريبة / ض.ق.م = Tax / VAT
-- الكمية = Quantity
-- السعر = Price
-- التاريخ = Date
-- الفاتورة = Invoice
-- إيجار = Rent
-- فاتورة كهرباء = Electricity bill
-- صيدلية = Pharmacy
+Each item must follow this structure:
+{
+  "name": "original name",
+  "name_en": "English translation",
+  "quantity": number (default 1),
+  "unit_price": number or null,
+  "total_price": number or null,
+  "categoryGroup": "exact group name",
+  "category": "exact category name"
+}
 
-Return:
+Use these EXACT categories:
+- Housing: Rent/Mortgage, Home Maintenance, Utilities, Internet & Phone, Home Insurance
+- Transportation: Fuel/Gas, Public Transport/Uber/Taxi, Car Maintenance/Insurance/Payments, Parking
+- Food & Dining: Groceries, Restaurants/Dining Out, Coffee/Snacks/Fast Food
+- Healthcare & Medicine: Doctor/Hospital, Pharmacy/Medicine, Health Insurance, Vitamins/Supplements
+- Entertainment & Joy: Movies/Streaming, Hobbies/Sports, Concerts/Events, Gaming
+- Shopping: Clothing, Electronics, Home Decor/Furniture
+- Personal Care: Haircuts/Salon, Cosmetics, Gym/Fitness
+- Travel & Vacation: Flights, Hotels, Local Trips
+- Education: Courses, Books, School Fees
+- Gifts & Donations: Gifts, Charity
+- Subscriptions: Streaming, Apps, Gym memberships
+- Debt Repayment: Credit Card Payments, Loan Installments
+- Bills & Fees: Electricity Bill, Water Bill, Gas Bill, Bank Fees, Late Fees
+- Miscellaneous: Bank Fees, Pet Care, Childcare, Other
+
+Prioritize using the provided structured data when available, then enhance with raw text.
+
+Return exactly this structure:
 {
   "vendor": "...",
   "vendorArabic": "...",
   "invoiceType": "...",
-  "items": [
-    {"name": "...", "name_en": "...", "quantity": 1, "unit_price": 0.0, "total_price": 0.0}
-  ],
+  "items": [],
   "totalAmount": 0.0,
   "taxAmount": 0.0,
   "currency": "EGP",
@@ -469,25 +555,16 @@ async def extract_from_ocr_text(
     file_type: str,
 ) -> dict:
     """
-    Use LLM to extract structured invoice data from OCR text.
-
-    Returns:
-        {
-            "extracted"          : { vendor, vendorArabic, invoiceType, items[], totalAmount,
-                                      taxAmount, currency, date, rawText },
-            "suggestedTransaction": { type, amount, description },
-            "confidence"         : float,
-            "missingFields"      : list[str],
-            "needsConfirmation"  : bool,
-        }
+    Enhanced OCR extraction with robust merging and per-item categorization.
     """
     client = _get_azure_client()
     deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
 
-    # Build user prompt combining raw text + structured hint if available
-    user_content = f"Language: {language}\nFile type: {file_type}\n\nOCR Raw Text:\n{raw_text}"
+    # Build rich prompt combining both inputs
+    user_content = f"Language: {language}\nFile type: {file_type}\n\n"
     if structured_ocr:
-        user_content += f"\n\nPre-structured OCR fields (use as reference):\n{json.dumps(structured_ocr, ensure_ascii=False, indent=2)}"
+        user_content += f"Structured OCR Data (use this as primary source):\n{json.dumps(structured_ocr, ensure_ascii=False, indent=2)}\n\n"
+    user_content += f"Raw OCR Text:\n{raw_text}"
 
     messages = [
         {"role": "system", "content": OCR_EXTRACT_SYSTEM_PROMPT},
@@ -497,7 +574,8 @@ async def extract_from_ocr_text(
     response = await client.chat.completions.create(
         model=deployment_name,
         messages=messages,
-        max_completion_tokens=600
+        max_completion_tokens=800,
+        temperature=0.1
     )
 
     raw = response.choices[0].message.content.strip()
@@ -507,54 +585,100 @@ async def extract_from_ocr_text(
     try:
         extracted = json.loads(raw)
     except json.JSONDecodeError:
-        extracted = {
-            "vendor": None,
-            "vendorArabic": None,
-            "invoiceType": "other",
-            "items": [],
-            "totalAmount": None,
-            "taxAmount": 0.0,
-            "currency": None,
-            "date": None,
-            "rawText": raw_text,
-        }
+        extracted = {}
 
-    extracted.setdefault("rawText", raw_text)
+    # ─────────────────────────────────────────────────────────────
+    # ROBUST MERGE WITH structuredOcr (handles varied field names)
+    # ─────────────────────────────────────────────────────────────
+    if structured_ocr:
+        merge_map = {
+            "vendor":       ["vendor", "MerchantName", "merchant"],
+            "vendorArabic": ["vendorArabic"],
+            "date":         ["date", "TransactionDate"],
+            "currency":     ["currency"],
+            "totalAmount":  ["totalAmount", "total", "Total", "subtotal", "Net"],
+            "taxAmount":    ["taxAmount", "tax", "TotalTax"],
+        }
+        for target_key, possible_sources in merge_map.items():
+            # Keep LLM value if it is already filled in
+            if extracted.get(target_key) not in (None, "", 0, []):
+                continue
+            for src_key in possible_sources:
+                value = structured_ocr.get(src_key)
+                if value not in (None, "", 0, []):
+                    extracted[target_key] = value
+                    break
+
+    # Safe defaults
     extracted.setdefault("items", [])
     extracted.setdefault("taxAmount", 0.0)
+    extracted.setdefault("totalAmount", None)
+    extracted.setdefault("currency", "EGP")
+    extracted.setdefault("rawText", raw_text)
 
-    # Missing fields
-    missing = []
-    for field in ("vendor", "totalAmount", "currency"):
-        if not extracted.get(field):
-            missing.append(field)
+    # ─────────────────────────────────────────────────────────────
+    # PER-ITEM CATEGORIZATION (batch first, per-item as fallback)
+    # ─────────────────────────────────────────────────────────────
+    items = extracted.get("items", [])
+    if items:
+        try:
+            await categorize_items_batch(items)
+        except Exception as e:
+            logger.warning(f"OCR batch categorization failed: {e}")
+            # Fallback: categorize each item individually
+            for item in items:
+                if not item.get("categoryGroup") or not item.get("category"):
+                    item_text = (
+                        f"{item.get('name_en') or item.get('name', '')} "
+                        f"{item.get('total_price', '')} EGP"
+                    )
+                    try:
+                        cat_result = await categorize_transaction(item_text)
+                        item["categoryGroup"] = cat_result.get("categoryGroup", "Miscellaneous")
+                        item["category"]      = cat_result.get("category",      "Other")
+                    except Exception:
+                        item.setdefault("categoryGroup", "Miscellaneous")
+                        item.setdefault("category",      "Uncategorized")
 
-    # Confidence
+    # ─────────────────────────────────────────────────────────────
+    # Compute confidence & missing fields
+    # ─────────────────────────────────────────────────────────────
+    missing = [
+        field for field in ("vendor", "totalAmount", "currency")
+        if not extracted.get(field)
+    ]
+    items_missing_categories = [
+        item.get("name") for item in items
+        if not item.get("category") or not item.get("categoryGroup")
+    ]
+    if items_missing_categories:
+        missing.append(f"categories_for_items: {items_missing_categories}")
+
     filled = sum(
         1 for f in ("vendor", "totalAmount", "currency", "date")
         if extracted.get(f)
     )
-    confidence = round(0.55 + (filled / 4) * 0.45, 2)
+    confidence        = round(0.55 + (filled / 4) * 0.45, 2)
     needs_confirmation = confidence < 0.9 or bool(missing)
 
-    # Suggested transaction shape
+    # Suggested transaction for backward compatibility
     item_names = ", ".join(
-        i.get("name", "") for i in (extracted.get("items") or []) if i.get("name")
+        i.get("name_en") or i.get("name", "") for i in items if i.get("name")
     )
     description = extracted.get("vendor") or ""
     if item_names:
-        description = f"{description} — {item_names}"
+        description = f"{description} — {item_names}" if description else item_names
 
     suggested_transaction = {
-        "type": "expense",
-        "amount": extracted.get("totalAmount"),
+        "type":        "expense",
+        "amount":      extracted.get("totalAmount"),
         "description": description.strip(" —"),
     }
 
     return {
-        "extracted": extracted,
+        "extracted":          extracted,
         "suggestedTransaction": suggested_transaction,
-        "confidence": confidence,
-        "missingFields": missing,
-        "needsConfirmation": needs_confirmation,
+        "confidence":         confidence,
+        "missingFields":      missing,
+        "needsConfirmation":  needs_confirmation,
     }

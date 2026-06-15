@@ -362,30 +362,72 @@ async def ocr_extract(request: Request, body: OcrExtractRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
 
-    # Internally call categorize
-    try:
-        ext = extraction["extracted"]
-        cat_text = " ".join(filter(None, [
-            ext.get("vendor"),
-            ext.get("invoiceType"),
-            str(ext.get("totalAmount", "")) if ext.get("totalAmount") else None,
-            ext.get("currency"),
-        ]))
-        category = await categorize_transaction(cat_text or body.rawText[:200])
-    except Exception:
-        category = None
+    ext = extraction["extracted"]
+    items = ext.get("items") or []
+
+    # Build categorizedItems — items already have categoryGroup/category from llm_service
+    categorized_items = []
+    breakdown_map = {}
+
+    for item in items:
+        cat_group = item.get("categoryGroup") or "Miscellaneous"
+        cat_name  = item.get("category")      or "Uncategorized"
+        amount    = item.get("total_price")   or item.get("unit_price") or 0
+
+        categorized_items.append({
+            **item,
+            "categoryGroup": cat_group,
+            "category":      cat_name,
+            "confidence":    item.get("categoryConfidence", 0.85),
+        })
+
+        key = (cat_group, cat_name)
+        breakdown_map[key] = breakdown_map.get(key, 0) + amount
+
+    # Grouped breakdown list (same shape as voice)
+    category_breakdown = [
+        {
+            "categoryGroup": g,
+            "category":      c,
+            "amount":        round(a, 2),
+            "currency":      ext.get("currency", "EGP"),
+        }
+        for (g, c), a in breakdown_map.items()
+    ]
+
+    # Top-level category (most expensive group — backward compat)
+    overall_category = None
+    if category_breakdown:
+        top_cat = max(category_breakdown, key=lambda x: x["amount"])
+        overall_category = {
+            "type":                "expense",
+            "categoryGroup":       top_cat["categoryGroup"],
+            "category":            top_cat["category"],
+            "confidence":          0.9,
+            "detectedAmount":      ext.get("totalAmount"),
+            "detectedCurrency":    ext.get("currency", "EGP"),
+            "suggestedDescription": ", ".join(
+                [i.get("name_en") or i.get("name", "") for i in items]
+            )[:100],
+            "language": "en",
+        }
 
     response = {
-        "source": "ocr",
-        "fileType": body.fileType,
-        "language": body.language,
-        "rawText": body.rawText,
+        "source":            "ocr",
+        "fileType":          body.fileType,
+        "language":          body.language,
+        "rawText":           body.rawText,
         **extraction,
+        "categorizedItems":  categorized_items,   # per-item with categories
+        "categoryBreakdown": category_breakdown,  # grouped totals per category
+        "totalAmount":       ext.get("totalAmount"),
     }
-    if category:
-        response["category"] = category
+
+    if overall_category:
+        response["category"] = overall_category
 
     return response
+
 
 
 # ─────────────────────────────────────────────
