@@ -272,8 +272,7 @@ async def categorize_items_batch(items: list[dict]) -> list[dict]:
     response = await client.chat.completions.create(
         model=deployment_name,
         messages=messages,
-        max_completion_tokens=800,
-        temperature=0.0
+        max_completion_tokens=800
     )
 
     raw = response.choices[0].message.content.strip()
@@ -574,8 +573,7 @@ async def extract_from_ocr_text(
     response = await client.chat.completions.create(
         model=deployment_name,
         messages=messages,
-        max_completion_tokens=800,
-        temperature=0.1
+        max_completion_tokens=800
     )
 
     raw = response.choices[0].message.content.strip()
