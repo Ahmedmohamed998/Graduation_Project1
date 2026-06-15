@@ -783,6 +783,37 @@ def _parse_items_from_raw_text(raw_text: str) -> list:
                     })
                     i += 2
                     continue
+                    
+        # Pattern 3: "Total Price\nUnit Price\nQty\nItem Name" (Bare numbers, no currency)
+        # Example: 4579\n4579\n1\nبرفان سي بوزيشن اورجينال الاحمر
+        if i + 3 < len(lines):
+            total_p_line = lines[i].strip()
+            unit_p_line = lines[i + 1].strip()
+            qty_line = lines[i + 2].strip()
+            name_line = lines[i + 3].strip()
+            
+            strict_num = re.compile(r'^\s*[\d,]+\.?\d*\s*$')
+            
+            if (strict_num.match(total_p_line) and 
+                strict_num.match(unit_p_line) and 
+                strict_num.match(qty_line) and
+                name_line and not strict_num.match(name_line) and
+                not any(skip in name_line.lower() for skip in skip_words)):
+                
+                total_p = _extract_amount(total_p_line)
+                unit_p = _extract_amount(unit_p_line)
+                qty = _extract_amount(qty_line)
+                
+                if total_p is not None and unit_p is not None and qty is not None and qty > 0:
+                    items.append({
+                        "name": name_line,
+                        "name_en": name_line,
+                        "quantity": int(qty) if qty == int(qty) else qty,
+                        "unit_price": unit_p,
+                        "total_price": total_p,
+                    })
+                    i += 4
+                    continue
         
         i += 1
     
@@ -791,8 +822,8 @@ def _parse_items_from_raw_text(raw_text: str) -> list:
 
 def _extract_amount(text: str) -> float | None:
     """Extract numeric amount from a price string like 'EGP 150.00' or '9.60 SR'."""
-    # Remove currency symbols and commas, find the number
-    cleaned = re.sub(r'[A-Za-z\.\u0600-\u06FF]+', ' ', text)  # remove letters
+    # Remove letters, but keep numbers and periods
+    cleaned = re.sub(r'[A-Za-z\u0600-\u06FF]+', ' ', text)
     cleaned = cleaned.replace(',', '')
     numbers = re.findall(r'[\d]+\.?\d*', cleaned)
     if numbers:
