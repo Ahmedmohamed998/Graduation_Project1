@@ -136,7 +136,7 @@ router.post('/extract', verifyToken, async (req, res) => {
             structuredOcr: structuredOcr || null,
             language:      language || 'auto',
             fileType:      fileType  || 'image',
-        });
+        }, 90000);
         return res.status(ok ? 200 : status).json(data);
     } catch (err) {
         if (err.name === 'AbortError') {
