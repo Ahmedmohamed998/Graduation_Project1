@@ -531,7 +531,7 @@ Use these EXACT categories:
 - Bills & Fees: Electricity Bill, Water Bill, Gas Bill, Bank Fees, Late Fees
 - Miscellaneous: Bank Fees, Pet Care, Childcare, Other
 
-Prioritize using the provided structured data when available, then enhance with raw text.
+Prioritize using the provided structured data when available. IMPORTANT: If the structured data has an empty "items" array ([]), you MUST manually extract the line items from the Raw OCR Text!
 
 Return exactly this structure:
 {
