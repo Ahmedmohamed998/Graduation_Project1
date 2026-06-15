@@ -227,7 +227,7 @@ def test_ocr(token: str, image_path: str = None):
             "fileType": "image"
         }
         
-        ex_code, ex_body = post_json(extract_url, extract_payload, token, timeout=90)
+        ex_code, ex_body = post_json(extract_url, extract_payload, token, timeout=180)
         if ex_code == 200:
             ok(f"HTTP {ex_code} — LLM Categorization successful")
             print(f"\n  Final Categorized Output:\n  {json.dumps(ex_body, indent=4, ensure_ascii=False)}")
