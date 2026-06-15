@@ -538,7 +538,17 @@ Return exactly this structure:
   "vendor": "...",
   "vendorArabic": "...",
   "invoiceType": "...",
-  "items": [],
+  "items": [
+    {
+      "name": "...",
+      "name_en": "...",
+      "quantity": 1,
+      "unit_price": 0.0,
+      "total_price": 0.0,
+      "categoryGroup": "...",
+      "category": "..."
+    }
+  ],
   "totalAmount": 0.0,
   "taxAmount": 0.0,
   "currency": "EGP",
