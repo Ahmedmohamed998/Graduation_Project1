@@ -776,7 +776,7 @@ const getSavingsOverview = async (req, res, next) => {
     res.status(200).json({
       // Balance context
       balanceContext: {
-        totalBalance: round2(account?.totalBalance || 0),
+        totalBalance: round2((account?.totalBalance || 0) + totalAllocated),
         availableBalance: round2(account?.availableBalance || 0),
         allocatedSavings: totalAllocated,
       },

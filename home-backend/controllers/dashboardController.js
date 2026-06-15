@@ -73,9 +73,9 @@ const getDashboard = async (req, res, next) => {
             balance: {
                 /**
                  * totalBalance — the full ledger balance (income - expenses).
-                 * This does NOT decrease when contributing to goals.
+                 * This does NOT decrease when contributing to goals (adds back allocated savings).
                  */
-                total:            roundToTwo(account.totalBalance),
+                total:            roundToTwo(account.totalBalance + account.allocatedSavings),
                 /**
                  * availableBalance — money the user can freely spend right now.
                  * = totalBalance - allocatedSavings

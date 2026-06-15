@@ -324,7 +324,7 @@ const contributeToGoal = async (req, res, next) => {
             contributed: effectiveAmount,
             savingsGoal,
             account: {
-                totalBalance: roundToTwo(updatedAccount.totalBalance),
+                totalBalance: roundToTwo(updatedAccount.totalBalance + updatedAccount.allocatedSavings),
                 availableBalance: roundToTwo(updatedAccount.availableBalance),
                 allocatedSavings: roundToTwo(updatedAccount.allocatedSavings)
             }
@@ -422,7 +422,7 @@ const withdrawFromGoal = async (req, res, next) => {
             withdrawn: roundedAmount,
             savingsGoal,
             account: {
-                totalBalance: roundToTwo(updatedAccount.totalBalance),
+                totalBalance: roundToTwo(updatedAccount.totalBalance + updatedAccount.allocatedSavings),
                 availableBalance: roundToTwo(updatedAccount.availableBalance),
                 allocatedSavings: roundToTwo(updatedAccount.allocatedSavings)
             }
@@ -549,7 +549,7 @@ const deleteSavingsGoal = async (req, res, next) => {
             message: 'Savings goal deleted successfully',
             fundsRestored: fundsToRestore,
             account: updatedAccount ? {
-                totalBalance:     roundToTwo(updatedAccount.totalBalance),
+                totalBalance:     roundToTwo(updatedAccount.totalBalance + updatedAccount.allocatedSavings),
                 availableBalance: roundToTwo(updatedAccount.availableBalance),
                 allocatedSavings: roundToTwo(updatedAccount.allocatedSavings)
             } : null
