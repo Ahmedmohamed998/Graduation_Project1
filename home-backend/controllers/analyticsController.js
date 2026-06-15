@@ -60,7 +60,7 @@ const getOverview = async (req, res, next) => {
     const { startDate, endDate } = getDateRange(period);
 
     // ── Transactions in period ────────────────────────────────────────────
-    const [incAgg, expAgg, txCount, account] = await Promise.all([
+    const [incAgg, expAgg, txCount, account, goalTxAgg] = await Promise.all([
       Transaction.aggregate([
         {
           $match: {
@@ -86,12 +86,32 @@ const getOverview = async (req, res, next) => {
         date: { $gte: startDate, $lte: endDate },
       }),
       Account.findOne({ userId }),
+      GoalTransaction.aggregate([
+        {
+          $match: {
+            userId,
+            createdAt: { $gte: startDate, $lte: endDate },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalNetContrib: {
+              $sum: {
+                $cond: [{ $eq: ["$type", "contribution"] }, "$amount", { $multiply: ["$amount", -1] }]
+              }
+            }
+          }
+        }
+      ]),
     ]);
 
     const totalIncome = round2(incAgg[0]?.total || 0);
     const totalExpense = round2(expAgg[0]?.total || 0);
-    // netCashFlow = income - expenses (does NOT include goal allocations)
-    const netSavings = round2(totalIncome - totalExpense);
+    const periodNetContrib = round2(goalTxAgg[0]?.totalNetContrib || 0);
+    
+    // netCashFlow = income - expenses - net savings contributions
+    const netSavings = round2(totalIncome - totalExpense - periodNetContrib);
     const savingsRate = calcSavingsRate(totalIncome, totalExpense);
     // allocatedSavings = money currently locked in savings goals
     const allocatedSavings = round2(account?.allocatedSavings || 0);
@@ -295,7 +315,7 @@ const getTrends = async (req, res, next) => {
         999,
       );
 
-      const [incR, expR] = await Promise.all([
+      const [incR, expR, goalTxAgg] = await Promise.all([
         Transaction.aggregate([
           {
             $match: {
@@ -316,11 +336,30 @@ const getTrends = async (req, res, next) => {
           },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
+        GoalTransaction.aggregate([
+          {
+            $match: {
+              userId,
+              createdAt: { $gte: start, $lte: end },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              totalNetContrib: {
+                $sum: {
+                  $cond: [{ $eq: ["$type", "contribution"] }, "$amount", { $multiply: ["$amount", -1] }]
+                }
+              }
+            }
+          }
+        ]),
       ]);
 
       const income = round2(incR[0]?.total || 0);
       const expense = round2(expR[0]?.total || 0);
-      const net = round2(income - expense);
+      const periodNetContrib = round2(goalTxAgg[0]?.totalNetContrib || 0);
+      const net = round2(income - expense - periodNetContrib);
 
       trends.push({
         month: `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, "0")}`,
